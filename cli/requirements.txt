@@ -1,0 +1,29 @@
+# C2JAVA CLI Service 의존성
+# Python 3.11+
+
+# CLI 도구
+aider-chat>=0.50.0
+fabric-ai>=1.0.0
+
+# HTTP 서버
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+
+# HTTP 클라이언트
+requests>=2.31.0
+httpx>=0.26.0
+
+# 환경 설정
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+
+# 유틸리티
+click>=8.1.7
+rich>=13.7.0
+
+# 비동기 처리
+aiofiles>=23.2.1
+
+# 로깅
+structlog>=24.1.0

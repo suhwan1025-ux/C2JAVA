@@ -1,0 +1,240 @@
+version: '3.8'
+
+# ============================================
+# C2JAVA 자동화 시스템 Docker Compose
+# ============================================
+
+services:
+  # ----------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: c2java-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-c2java_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-c2java_password}
+      POSTGRES_DB: ${DB_NAME:-c2java}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - c2java-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-c2java_user} -d ${DB_NAME:-c2java}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------
+  # Spring Boot Backend API
+  # ----------------------------------------
+  backend:
+    build:
+      context: ../../backend/c2java-api
+      dockerfile: Dockerfile
+    container_name: c2java-backend
+    restart: unless-stopped
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${DB_NAME:-c2java}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-c2java_user}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-c2java_password}
+      - ACTIVE_LLM_PROVIDER=${ACTIVE_LLM_PROVIDER:-qwen3}
+      - QWEN3_API_URL=${QWEN3_API_URL}
+      - QWEN3_API_KEY=${QWEN3_API_KEY}
+      - GPT_OSS_API_URL=${GPT_OSS_API_URL}
+      - GPT_OSS_API_KEY=${GPT_OSS_API_KEY}
+    volumes:
+      - workspace_data:/app/workspace
+      - output_data:/app/output
+      - ../../config/rules:/app/config/rules:ro
+      - logs_data:/app/logs
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # React Frontend
+  # ----------------------------------------
+  frontend:
+    build:
+      context: ../../frontend/c2java-web
+      dockerfile: Dockerfile
+    container_name: c2java-frontend
+    restart: unless-stopped
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8080/api}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # CLI Service (AIDER + Fabric)
+  # ----------------------------------------
+  cli-service:
+    build:
+      context: ../../cli
+      dockerfile: Dockerfile
+    container_name: c2java-cli
+    restart: unless-stopped
+    environment:
+      - ACTIVE_LLM_PROVIDER=${ACTIVE_LLM_PROVIDER:-qwen3}
+      - QWEN3_API_URL=${QWEN3_API_URL}
+      - QWEN3_API_KEY=${QWEN3_API_KEY}
+      - GPT_OSS_API_URL=${GPT_OSS_API_URL}
+      - GPT_OSS_API_KEY=${GPT_OSS_API_KEY}
+      - AIDER_ENABLED=${AIDER_ENABLED:-true}
+      - FABRIC_ENABLED=${FABRIC_ENABLED:-true}
+    volumes:
+      - workspace_data:/app/workspace
+      - output_data:/app/output
+      - ../../config/rules:/app/config/rules:ro
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # Apache Airflow
+  # ----------------------------------------
+  airflow-webserver:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-webserver
+    restart: unless-stopped
+    command: webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD:-airflow_password}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags
+      - ../../airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "${AIRFLOW_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - c2java-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-scheduler
+    restart: unless-stopped
+    command: scheduler
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD:-airflow_password}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags
+      - ../../airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - c2java-network
+
+  airflow-init:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USER:-admin} \
+          --password ${AIRFLOW_ADMIN_PASSWORD:-admin} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD:-airflow_password}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # Grafana Monitoring
+  # ----------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: c2java-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../monitoring/dashboards:/etc/grafana/provisioning/dashboards
+      - ../../monitoring/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - postgres
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # MCP Server
+  # ----------------------------------------
+  mcp-server:
+    build:
+      context: ../../mcp
+      dockerfile: Dockerfile
+    container_name: c2java-mcp
+    restart: unless-stopped
+    environment:
+      - MCP_ENABLED=${MCP_ENABLED:-true}
+    ports:
+      - "8082:8082"
+    networks:
+      - c2java-network
+
+# ----------------------------------------
+# Networks
+# ----------------------------------------
+networks:
+  c2java-network:
+    driver: bridge
+
+# ----------------------------------------
+# Volumes
+# ----------------------------------------
+volumes:
+  postgres_data:
+  workspace_data:
+  output_data:
+  logs_data:
+  airflow_logs:
+  grafana_data:

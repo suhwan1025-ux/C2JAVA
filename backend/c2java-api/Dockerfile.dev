@@ -1,0 +1,27 @@
+# ============================================
+# C2JAVA Backend API Dockerfile (개발용)
+# Hot Reload 지원
+# ============================================
+
+FROM gradle:8.5-jdk21
+
+WORKDIR /app
+
+# Gradle 캐싱을 위한 의존성 파일 복사
+COPY build.gradle settings.gradle ./
+COPY gradle ./gradle
+
+# 의존성 다운로드
+RUN gradle dependencies --no-daemon || true
+
+# 소스 코드 복사
+COPY src ./src
+
+# 개발 모드로 실행 (DevTools 활성화)
+ENV SPRING_DEVTOOLS_RESTART_ENABLED=true
+ENV SPRING_DEVTOOLS_LIVERELOAD_ENABLED=true
+
+EXPOSE 8080
+
+# bootRun으로 실행 (Hot Reload 지원)
+CMD ["gradle", "bootRun", "--no-daemon"]

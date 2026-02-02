@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C2JAVA - C to Java 자동 변환 시스템</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800">
+    
+    <!-- 로그인 페이지 -->
+    <div id="login-page" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-md">
+            <!-- 로고 -->
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
+                    <svg class="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-bold text-white">C2JAVA</h1>
+                <p class="text-indigo-200 mt-2">C to Java 자동 변환 시스템</p>
+            </div>
+
+            <!-- 로그인 폼 -->
+            <div class="bg-white rounded-2xl shadow-xl p-8">
+                <div class="flex mb-6 bg-gray-100 rounded-lg p-1">
+                    <button id="login-tab" onclick="showLogin()" class="flex-1 py-2 text-sm font-medium rounded-md bg-white text-gray-900 shadow">로그인</button>
+                    <button id="register-tab" onclick="showRegister()" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500">회원가입</button>
+                </div>
+
+                <!-- 로그인 폼 -->
+                <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">사용자명</label>
+                        <input type="text" id="login-username" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="사용자명 입력">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
+                        <input type="password" id="login-password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="비밀번호 입력">
+                    </div>
+                    <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                        </svg>
+                        로그인
+                    </button>
+                </form>
+
+                <!-- 회원가입 폼 (숨김) -->
+                <form id="register-form" onsubmit="handleRegister(event)" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">사용자명</label>
+                        <input type="text" id="reg-username" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">이메일</label>
+                        <input type="email" id="reg-email" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
+                        <input type="password" id="reg-password" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                    </div>
+                    <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg">
+                        회원가입
+                    </button>
+                </form>
+
+                <!-- 테스트 계정 안내 -->
+                <div class="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <p class="text-sm text-blue-800 font-medium mb-1">테스트 계정</p>
+                    <p class="text-sm text-blue-600">
+                        관리자: <code class="bg-blue-100 px-1 rounded">admin</code> / <code class="bg-blue-100 px-1 rounded">admin123</code>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 대시보드 (숨김) -->
+    <div id="dashboard-page" class="hidden">
+        <div class="min-h-screen bg-gray-100">
+            <!-- 사이드바 -->
+            <div class="fixed inset-y-0 left-0 z-50 w-64 bg-gray-900">
+                <div class="flex h-16 items-center px-6">
+                    <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                    </svg>
+                    <span class="ml-2 text-xl font-bold text-white">C2JAVA</span>
+                </div>
+                <nav class="px-4 py-4">
+                    <ul class="space-y-2">
+                        <li>
+                            <a href="#" onclick="showDashboard()" class="flex items-center gap-3 p-3 text-white bg-gray-800 rounded-md">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                                대시보드
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" onclick="showUpload()" class="flex items-center gap-3 p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-md">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                파일 업로드
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" class="flex items-center gap-3 p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-md">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                                작업 목록
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" onclick="showAdmin()" class="flex items-center gap-3 p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded-md">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                환경설정
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                <!-- 사용자 정보 -->
+                <div class="absolute bottom-0 left-0 right-0 border-t border-gray-800 p-4">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                        </div>
+                        <div>
+                            <p id="user-display-name" class="text-sm font-medium text-white">관리자</p>
+                            <p id="user-role" class="text-xs text-gray-400">관리자</p>
+                        </div>
+                    </div>
+                    <button onclick="logout()" class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        로그아웃
+                    </button>
+                </div>
+            </div>
+
+            <!-- 메인 콘텐츠 -->
+            <div class="pl-64">
+                <main class="py-6 px-8">
+                    <!-- 대시보드 내용 -->
+                    <div id="dashboard-content">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-6">대시보드</h1>
+                        
+                        <!-- 통계 카드 -->
+                        <div class="grid grid-cols-4 gap-6 mb-8">
+                            <div class="bg-white rounded-lg shadow p-5">
+                                <div class="flex items-center">
+                                    <div class="bg-blue-500 rounded-md p-3">
+                                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                                    </div>
+                                    <div class="ml-5">
+                                        <p class="text-sm text-gray-500">전체 작업</p>
+                                        <p class="text-2xl font-semibold">128</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-5">
+                                <div class="flex items-center">
+                                    <div class="bg-green-500 rounded-md p-3">
+                                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    </div>
+                                    <div class="ml-5">
+                                        <p class="text-sm text-gray-500">완료</p>
+                                        <p class="text-2xl font-semibold">115</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-5">
+                                <div class="flex items-center">
+                                    <div class="bg-yellow-500 rounded-md p-3">
+                                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    </div>
+                                    <div class="ml-5">
+                                        <p class="text-sm text-gray-500">진행 중</p>
+                                        <p class="text-2xl font-semibold">8</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-5">
+                                <div class="flex items-center">
+                                    <div class="bg-red-500 rounded-md p-3">
+                                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    </div>
+                                    <div class="ml-5">
+                                        <p class="text-sm text-gray-500">실패</p>
+                                        <p class="text-2xl font-semibold">5</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 시스템 상태 -->
+                        <div class="bg-white shadow rounded-lg p-6 mb-8">
+                            <h2 class="text-lg font-semibold text-gray-900 mb-4">시스템 상태</h2>
+                            <div class="grid grid-cols-4 gap-4">
+                                <div>
+                                    <span class="text-sm text-gray-500">상태:</span>
+                                    <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">RUNNING</span>
+                                </div>
+                                <div>
+                                    <span class="text-sm text-gray-500">활성 LLM:</span>
+                                    <span class="ml-2 font-medium text-gray-900">QWEN3 VL</span>
+                                </div>
+                                <div>
+                                    <span class="text-sm text-gray-500">AIDER:</span>
+                                    <span class="ml-2 text-green-600">활성</span>
+                                </div>
+                                <div>
+                                    <span class="text-sm text-gray-500">Fabric:</span>
+                                    <span class="ml-2 text-green-600">활성</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 성공률 -->
+                        <div class="bg-white shadow rounded-lg p-6">
+                            <h2 class="text-lg font-semibold text-gray-900 mb-4">변환 성공률</h2>
+                            <div class="text-4xl font-bold text-indigo-600">89.8%</div>
+                        </div>
+                    </div>
+
+                    <!-- 업로드 페이지 (숨김) -->
+                    <div id="upload-content" class="hidden">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-6">파일 업로드</h1>
+                        <div class="bg-white shadow rounded-lg p-6">
+                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-400 cursor-pointer">
+                                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                </svg>
+                                <p class="mt-2 text-sm text-gray-600">클릭하거나 C 파일을 드래그하여 업로드</p>
+                                <p class="mt-1 text-xs text-gray-500">.c, .h 파일만 지원됩니다</p>
+                            </div>
+                            <div class="mt-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">LLM 모델 선택</label>
+                                <select class="w-full rounded-md border-gray-300 shadow-sm">
+                                    <option>QWEN3 VL (235B)</option>
+                                    <option>GPT OSS</option>
+                                </select>
+                            </div>
+                            <button class="mt-6 w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg">
+                                변환 시작
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 환경설정 페이지 (숨김) -->
+                    <div id="admin-content" class="hidden">
+                        <h1 class="text-2xl font-bold text-gray-900 mb-6">환경설정 관리</h1>
+                        
+                        <!-- 카테고리 필터 -->
+                        <div class="bg-white shadow rounded-lg p-4 mb-6">
+                            <div class="flex gap-2">
+                                <button class="px-4 py-2 rounded-full text-sm font-medium bg-indigo-600 text-white">ALL</button>
+                                <button class="px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">LLM</button>
+                                <button class="px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">CLI</button>
+                                <button class="px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">SERVER</button>
+                            </div>
+                        </div>
+
+                        <!-- 설정 테이블 -->
+                        <div class="bg-white shadow rounded-lg overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">설정 키</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">값</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">설명</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">액션</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <tr>
+                                        <td class="px-6 py-4 text-sm font-mono">llm.active_provider</td>
+                                        <td class="px-6 py-4 text-sm text-gray-600">qwen3</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">활성 LLM 제공자</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button class="text-indigo-600 hover:text-indigo-800">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-6 py-4 text-sm font-mono">llm.qwen3.api_url</td>
+                                        <td class="px-6 py-4 text-sm text-gray-600">http://llm-server:8080/v1</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">QWEN3 API URL</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button class="text-indigo-600 hover:text-indigo-800">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-6 py-4 text-sm font-mono">cli.aider.enabled</td>
+                                        <td class="px-6 py-4 text-sm text-gray-600">true</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">AIDER 활성화 여부</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button class="text-indigo-600 hover:text-indigo-800">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 안내 -->
+                        <div class="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <h3 class="font-medium text-blue-800 mb-2">설정 변경 안내</h3>
+                            <ul class="text-sm text-blue-700 space-y-1">
+                                <li>• 설정 변경은 즉시 반영됩니다 (재시작 불필요)</li>
+                                <li>• 민감정보(API Key 등)는 마스킹되어 표시됩니다</li>
+                                <li>• 변경 이력은 자동으로 기록됩니다</li>
+                            </ul>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 로그인 처리
+        function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            // 테스트 계정 확인
+            if ((username === 'admin' && password === 'admin123') || 
+                (username === 'user' && password === 'user123')) {
+                
+                const user = {
+                    username: username,
+                    displayName: username === 'admin' ? '시스템 관리자' : '테스트 사용자',
+                    role: username === 'admin' ? 'ADMIN' : 'USER'
+                };
+                
+                localStorage.setItem('c2java-user', JSON.stringify(user));
+                showDashboardPage(user);
+            } else {
+                alert('아이디 또는 비밀번호가 올바르지 않습니다.');
+            }
+        }
+
+        // 회원가입 처리
+        function handleRegister(e) {
+            e.preventDefault();
+            alert('회원가입이 완료되었습니다. 로그인해주세요.');
+            showLogin();
+        }
+
+        // 로그인 탭 표시
+        function showLogin() {
+            document.getElementById('login-tab').classList.add('bg-white', 'text-gray-900', 'shadow');
+            document.getElementById('login-tab').classList.remove('text-gray-500');
+            document.getElementById('register-tab').classList.remove('bg-white', 'text-gray-900', 'shadow');
+            document.getElementById('register-tab').classList.add('text-gray-500');
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('register-form').classList.add('hidden');
+        }
+
+        // 회원가입 탭 표시
+        function showRegister() {
+            document.getElementById('register-tab').classList.add('bg-white', 'text-gray-900', 'shadow');
+            document.getElementById('register-tab').classList.remove('text-gray-500');
+            document.getElementById('login-tab').classList.remove('bg-white', 'text-gray-900', 'shadow');
+            document.getElementById('login-tab').classList.add('text-gray-500');
+            document.getElementById('register-form').classList.remove('hidden');
+            document.getElementById('login-form').classList.add('hidden');
+        }
+
+        // 대시보드 페이지 표시
+        function showDashboardPage(user) {
+            document.getElementById('login-page').classList.add('hidden');
+            document.getElementById('dashboard-page').classList.remove('hidden');
+            document.getElementById('user-display-name').textContent = user.displayName;
+            document.getElementById('user-role').textContent = user.role === 'ADMIN' ? '관리자' : '사용자';
+            showDashboard();
+        }
+
+        // 대시보드 내용 표시
+        function showDashboard() {
+            document.getElementById('dashboard-content').classList.remove('hidden');
+            document.getElementById('upload-content').classList.add('hidden');
+            document.getElementById('admin-content').classList.add('hidden');
+        }
+
+        // 업로드 페이지 표시
+        function showUpload() {
+            document.getElementById('dashboard-content').classList.add('hidden');
+            document.getElementById('upload-content').classList.remove('hidden');
+            document.getElementById('admin-content').classList.add('hidden');
+        }
+
+        // 환경설정 페이지 표시
+        function showAdmin() {
+            document.getElementById('dashboard-content').classList.add('hidden');
+            document.getElementById('upload-content').classList.add('hidden');
+            document.getElementById('admin-content').classList.remove('hidden');
+        }
+
+        // 로그아웃
+        function logout() {
+            localStorage.removeItem('c2java-user');
+            document.getElementById('dashboard-page').classList.add('hidden');
+            document.getElementById('login-page').classList.remove('hidden');
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+        }
+
+        // 페이지 로드 시 로그인 상태 확인
+        window.onload = function() {
+            const savedUser = localStorage.getItem('c2java-user');
+            if (savedUser) {
+                const user = JSON.parse(savedUser);
+                showDashboardPage(user);
+            }
+        };
+    </script>
+</body>
+</html>

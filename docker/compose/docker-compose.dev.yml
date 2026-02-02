@@ -1,0 +1,116 @@
+version: '3.8'
+
+# ============================================
+# C2JAVA 개발 환경 Docker Compose
+# 로컬 개발용 - 의존성 설치 없이 Docker만으로 실행
+# ============================================
+
+services:
+  # ----------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: c2java-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: c2java_user
+      POSTGRES_PASSWORD: c2java_password
+      POSTGRES_DB: c2java
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - c2java-dev-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U c2java_user -d c2java"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------
+  # Spring Boot Backend (개발 모드)
+  # ----------------------------------------
+  backend:
+    build:
+      context: ../../backend/c2java-api
+      dockerfile: Dockerfile.dev
+    container_name: c2java-dev-backend
+    restart: unless-stopped
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/c2java
+      - SPRING_DATASOURCE_USERNAME=c2java_user
+      - SPRING_DATASOURCE_PASSWORD=c2java_password
+      - ACTIVE_LLM_PROVIDER=qwen3
+      - QWEN3_API_URL=${QWEN3_API_URL:-http://host.docker.internal:8000/v1}
+      - QWEN3_API_KEY=${QWEN3_API_KEY:-dev-key}
+      - GPT_OSS_API_URL=${GPT_OSS_API_URL:-http://host.docker.internal:8001/v1}
+      - GPT_OSS_API_KEY=${GPT_OSS_API_KEY:-dev-key}
+    volumes:
+      - ../../backend/c2java-api/src:/app/src:ro
+      - workspace_dev_data:/app/workspace
+      - output_dev_data:/app/output
+      - ../../config/rules:/app/config/rules:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - c2java-dev-network
+
+  # ----------------------------------------
+  # React Frontend (개발 모드)
+  # ----------------------------------------
+  frontend:
+    build:
+      context: ../../frontend/c2java-web
+      dockerfile: Dockerfile.dev
+    container_name: c2java-dev-frontend
+    restart: unless-stopped
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080/api
+    volumes:
+      - ../../frontend/c2java-web/src:/app/src:ro
+      - ../../frontend/c2java-web/public:/app/public:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - c2java-dev-network
+
+  # ----------------------------------------
+  # Grafana (모니터링)
+  # ----------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: c2java-dev-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_dev_data:/var/lib/grafana
+      - ../../monitoring/dashboards:/etc/grafana/provisioning/dashboards
+      - ../../monitoring/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3001:3000"
+    depends_on:
+      - postgres
+    networks:
+      - c2java-dev-network
+
+networks:
+  c2java-dev-network:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+  workspace_dev_data:
+  output_dev_data:
+  grafana_dev_data:

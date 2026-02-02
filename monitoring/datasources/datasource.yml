@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: C2JAVA PostgreSQL
+    type: postgres
+    uid: c2java-postgres
+    url: postgres:5432
+    user: ${DB_USER}
+    secureJsonData:
+      password: ${DB_PASSWORD}
+    jsonData:
+      database: ${DB_NAME}
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+    isDefault: true
+    editable: true
+
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true

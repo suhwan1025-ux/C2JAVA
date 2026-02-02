@@ -1,0 +1,285 @@
+version: '3.8'
+
+# ============================================
+# C2JAVA 운영 환경 Docker Compose
+# 폐쇄망 배포용
+# ============================================
+
+services:
+  # ----------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: c2java-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-c2java_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-c2java}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - c2java-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-c2java_user} -d ${DB_NAME:-c2java}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ----------------------------------------
+  # Spring Boot Backend API
+  # ----------------------------------------
+  backend:
+    image: c2java-backend:${VERSION:-latest}
+    container_name: c2java-backend
+    restart: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${DB_NAME:-c2java}
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-c2java_user}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - ACTIVE_LLM_PROVIDER=${ACTIVE_LLM_PROVIDER:-qwen3}
+      - QWEN3_API_URL=${QWEN3_API_URL}
+      - QWEN3_API_KEY=${QWEN3_API_KEY}
+      - QWEN3_MODEL_NAME=${QWEN3_MODEL_NAME:-qwen3-vl-235b}
+      - GPT_OSS_API_URL=${GPT_OSS_API_URL}
+      - GPT_OSS_API_KEY=${GPT_OSS_API_KEY}
+      - GPT_OSS_MODEL_NAME=${GPT_OSS_MODEL_NAME:-gpt-oss}
+      - AIDER_ENABLED=${AIDER_ENABLED:-true}
+      - FABRIC_ENABLED=${FABRIC_ENABLED:-true}
+      - JAVA_OPTS=-Xms1g -Xmx4g -XX:+UseG1GC
+    volumes:
+      - workspace_data:/app/workspace
+      - output_data:/app/output
+      - logs_data:/app/logs
+      - ../../config/rules:/app/config/rules:ro
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - c2java-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+  # ----------------------------------------
+  # React Frontend
+  # ----------------------------------------
+  frontend:
+    image: c2java-frontend:${VERSION:-latest}
+    container_name: c2java-frontend
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - c2java-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
+  # ----------------------------------------
+  # CLI Service
+  # ----------------------------------------
+  cli-service:
+    image: c2java-cli:${VERSION:-latest}
+    container_name: c2java-cli
+    restart: always
+    environment:
+      - ACTIVE_LLM_PROVIDER=${ACTIVE_LLM_PROVIDER:-qwen3}
+      - QWEN3_API_URL=${QWEN3_API_URL}
+      - QWEN3_API_KEY=${QWEN3_API_KEY}
+      - GPT_OSS_API_URL=${GPT_OSS_API_URL}
+      - GPT_OSS_API_KEY=${GPT_OSS_API_KEY}
+      - AIDER_ENABLED=${AIDER_ENABLED:-true}
+      - FABRIC_ENABLED=${FABRIC_ENABLED:-true}
+    volumes:
+      - workspace_data:/app/workspace
+      - output_data:/app/output
+      - ../../config/rules:/app/config/rules:ro
+    networks:
+      - c2java-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ----------------------------------------
+  # MCP Server
+  # ----------------------------------------
+  mcp-server:
+    image: c2java-mcp:${VERSION:-latest}
+    container_name: c2java-mcp
+    restart: always
+    environment:
+      - MCP_ENABLED=${MCP_ENABLED:-true}
+    ports:
+      - "8082:8082"
+    networks:
+      - c2java-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ----------------------------------------
+  # Apache Airflow (배치 처리)
+  # ----------------------------------------
+  airflow-webserver:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-webserver
+    restart: always
+    command: webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags:ro
+      - ../../airflow/plugins:/opt/airflow/plugins:ro
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "${AIRFLOW_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - c2java-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-scheduler
+    restart: always
+    command: scheduler
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ../../airflow/dags:/opt/airflow/dags:ro
+      - ../../airflow/plugins:/opt/airflow/plugins:ro
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - c2java-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  airflow-init:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: c2java-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USER:-admin} \
+          --password ${AIRFLOW_ADMIN_PASSWORD} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow_user}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - c2java-network
+
+  # ----------------------------------------
+  # Grafana (모니터링)
+  # ----------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: c2java-grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../monitoring/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../monitoring/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - postgres
+    networks:
+      - c2java-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+networks:
+  c2java-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  workspace_data:
+  output_data:
+  logs_data:
+  airflow_logs:
+  grafana_data:

@@ -1,0 +1,271 @@
+# ============================================
+# C to Java (Spring Boot 3.2.5) 변환 규칙
+# ============================================
+
+version: "1.0"
+target_framework: "Spring Boot 3.2.5"
+target_java_version: "21"
+
+# --------------------------------------------
+# 프로젝트 생성 규칙
+# --------------------------------------------
+project_structure:
+  base_package: "com.company.converted"
+  module_structure:
+    - name: "api"
+      description: "REST API 컨트롤러"
+      path: "src/main/java/{base_package}/api"
+    - name: "service"
+      description: "비즈니스 로직"
+      path: "src/main/java/{base_package}/service"
+    - name: "repository"
+      description: "데이터 접근 계층"
+      path: "src/main/java/{base_package}/repository"
+    - name: "domain"
+      description: "도메인 모델/엔티티"
+      path: "src/main/java/{base_package}/domain"
+    - name: "dto"
+      description: "데이터 전송 객체"
+      path: "src/main/java/{base_package}/dto"
+    - name: "config"
+      description: "설정 클래스"
+      path: "src/main/java/{base_package}/config"
+    - name: "util"
+      description: "유틸리티 클래스"
+      path: "src/main/java/{base_package}/util"
+    - name: "exception"
+      description: "예외 처리"
+      path: "src/main/java/{base_package}/exception"
+
+# --------------------------------------------
+# 타입 매핑 규칙
+# --------------------------------------------
+type_mapping:
+  # 기본 타입
+  primitives:
+    "int": "int"
+    "long": "long"
+    "float": "float"
+    "double": "double"
+    "char": "char"
+    "short": "short"
+    "unsigned int": "long"
+    "unsigned long": "long"
+    "unsigned char": "int"
+    "void": "void"
+    "size_t": "long"
+    "ssize_t": "long"
+    
+  # 포인터 타입
+  pointers:
+    "char*": "String"
+    "int*": "int[]"
+    "void*": "Object"
+    "FILE*": "java.io.File"
+    
+  # 구조체 변환
+  struct:
+    convert_to: "class"
+    annotations:
+      - "@Data"
+      - "@Builder"
+      - "@NoArgsConstructor"
+      - "@AllArgsConstructor"
+    
+  # 열거형
+  enum:
+    convert_to: "enum"
+    
+# --------------------------------------------
+# 함수 변환 규칙
+# --------------------------------------------
+function_mapping:
+  # 표준 입출력
+  io:
+    "printf": 
+      java_method: "System.out.printf"
+      import: null
+    "fprintf":
+      java_method: "PrintWriter.printf"
+      import: "java.io.PrintWriter"
+    "scanf":
+      java_method: "Scanner.next"
+      import: "java.util.Scanner"
+    "fopen":
+      java_method: "new FileInputStream"
+      import: "java.io.FileInputStream"
+    "fclose":
+      java_method: "close()"
+      import: null
+    "fread":
+      java_method: "read"
+      import: "java.io.InputStream"
+    "fwrite":
+      java_method: "write"
+      import: "java.io.OutputStream"
+      
+  # 문자열 함수
+  string:
+    "strlen":
+      java_method: "String.length()"
+      import: null
+    "strcpy":
+      java_method: "String assignment"
+      import: null
+    "strcat":
+      java_method: "String.concat() or StringBuilder"
+      import: null
+    "strcmp":
+      java_method: "String.equals() or String.compareTo()"
+      import: null
+    "strncpy":
+      java_method: "String.substring()"
+      import: null
+    "sprintf":
+      java_method: "String.format()"
+      import: null
+      
+  # 메모리 함수
+  memory:
+    "malloc":
+      java_method: "new"
+      note: "Java는 가비지 컬렉션 사용"
+    "calloc":
+      java_method: "new with Arrays.fill"
+      import: "java.util.Arrays"
+    "realloc":
+      java_method: "Arrays.copyOf"
+      import: "java.util.Arrays"
+    "free":
+      java_method: "// GC handles memory"
+      note: "명시적 해제 불필요"
+      
+  # 수학 함수
+  math:
+    "abs":
+      java_method: "Math.abs"
+      import: null
+    "sqrt":
+      java_method: "Math.sqrt"
+      import: null
+    "pow":
+      java_method: "Math.pow"
+      import: null
+    "rand":
+      java_method: "Random.nextInt"
+      import: "java.util.Random"
+    "srand":
+      java_method: "new Random(seed)"
+      import: "java.util.Random"
+
+# --------------------------------------------
+# Spring Boot 특화 변환 규칙
+# --------------------------------------------
+spring_conversion:
+  # main 함수 변환
+  main_function:
+    convert_to: "SpringBootApplication"
+    template: |
+      @SpringBootApplication
+      public class Application {
+          public static void main(String[] args) {
+              SpringApplication.run(Application.class, args);
+          }
+      }
+      
+  # 데이터베이스 연결 (기존 C의 DB 연결 코드)
+  database:
+    convert_to: "JPA Repository"
+    use_spring_data: true
+    annotations:
+      entity: "@Entity"
+      repository: "@Repository"
+      service: "@Service"
+      
+  # REST API 변환
+  rest_api:
+    controller_annotations:
+      - "@RestController"
+      - "@RequestMapping"
+    method_annotations:
+      get: "@GetMapping"
+      post: "@PostMapping"
+      put: "@PutMapping"
+      delete: "@DeleteMapping"
+
+# --------------------------------------------
+# 필수 의존성
+# --------------------------------------------
+required_dependencies:
+  spring_boot:
+    - "spring-boot-starter-web"
+    - "spring-boot-starter-data-jpa"
+    - "spring-boot-starter-validation"
+    - "spring-boot-starter-actuator"
+    - "spring-boot-starter-security"
+    
+  database:
+    - "postgresql"
+    - "h2" # 테스트용
+    
+  utilities:
+    - "lombok"
+    - "mapstruct"
+    - "apache-commons-lang3"
+    - "apache-commons-io"
+    - "guava"
+    
+  testing:
+    - "spring-boot-starter-test"
+    - "junit-jupiter"
+    - "mockito"
+    - "testcontainers"
+
+# --------------------------------------------
+# 코드 스타일 규칙
+# --------------------------------------------
+code_style:
+  indentation: 4
+  max_line_length: 120
+  naming_convention:
+    class: "PascalCase"
+    method: "camelCase"
+    variable: "camelCase"
+    constant: "UPPER_SNAKE_CASE"
+    package: "lowercase"
+  
+# --------------------------------------------
+# 변환 제외 패턴
+# --------------------------------------------
+exclusions:
+  # 변환하지 않을 파일 패턴
+  file_patterns:
+    - "*.h"  # 헤더 파일은 분석용으로만 사용
+    - "*_test.c"
+    - "test_*.c"
+    
+  # 변환하지 않을 함수
+  functions:
+    - "asm"
+    - "inline assembly"
+    
+# --------------------------------------------
+# 검증 규칙
+# --------------------------------------------
+validation:
+  # 컴파일 검증
+  compile_check:
+    enabled: true
+    max_retries: 3
+    
+  # 런타임 검증
+  runtime_check:
+    enabled: true
+    timeout_seconds: 60
+    
+  # 코드 품질 검증
+  quality_check:
+    enabled: true
+    tools:
+      - "checkstyle"
+      - "spotbugs"

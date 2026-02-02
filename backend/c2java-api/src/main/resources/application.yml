@@ -1,0 +1,217 @@
+spring:
+  application:
+    name: c2java-api
+    
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+    
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/c2java}
+    username: ${SPRING_DATASOURCE_USERNAME:c2java}
+    password: ${SPRING_DATASOURCE_PASSWORD:c2java123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+
+# ============================================
+# LLM 설정
+# ============================================
+llm:
+  active-provider: ${ACTIVE_LLM_PROVIDER:qwen3}
+  
+  qwen3:
+    api-url: ${QWEN3_API_URL:http://localhost:8080/v1}
+    api-key: ${QWEN3_API_KEY:}
+    model-name: ${QWEN3_MODEL_NAME:qwen3-vl-235b}
+    max-tokens: ${QWEN3_MAX_TOKENS:8192}
+    temperature: ${QWEN3_TEMPERATURE:0.1}
+    
+  gpt-oss:
+    api-url: ${GPT_OSS_API_URL:http://localhost:8080/v1}
+    api-key: ${GPT_OSS_API_KEY:}
+    model-name: ${GPT_OSS_MODEL_NAME:gpt-oss}
+    max-tokens: ${GPT_OSS_MAX_TOKENS:8192}
+    temperature: ${GPT_OSS_TEMPERATURE:0.1}
+
+# ============================================
+# CLI 도구 설정
+# ============================================
+cli:
+  aider:
+    enabled: ${AIDER_ENABLED:true}
+    executable-path: /usr/local/bin/aider
+    auto-commits: ${AIDER_AUTO_COMMITS:false}
+    
+  fabric:
+    enabled: ${FABRIC_ENABLED:true}
+    executable-path: /usr/local/bin/fabric
+    default-pattern: ${FABRIC_DEFAULT_PATTERN:analyze_code}
+
+# ============================================
+# 변환 설정
+# ============================================
+conversion:
+  workspace-dir: ${CONVERSION_WORKSPACE:/app/workspace}
+  output-dir: ${OUTPUT_DIR:/app/output}
+  rules-dir: ${RULES_DIR:/app/config/rules}
+  library-path: ${LIBRARY_PATH:/app/libs}
+  
+  compile:
+    max-retries: 3
+    timeout-seconds: 300
+    
+  runtime:
+    timeout-seconds: 60
+
+# ============================================
+# 보안 설정
+# ============================================
+security:
+  jwt:
+    # Base64 인코딩된 256비트 시크릿 키
+    secret-key: ${JWT_SECRET_KEY:YzJqYXZhLXNlY3JldC1rZXktZm9yLWp3dC10b2tlbi1nZW5lcmF0aW9uLW11c3QtYmUtMjU2LWJpdHM=}
+    expiration-ms: 86400000  # 24 hours
+
+# ============================================
+# Actuator 설정
+# ============================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# ============================================
+# 로깅 설정
+# ============================================
+logging:
+  level:
+    root: INFO
+    com.c2java: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+  file:
+    path: ${LOG_DIR:/app/logs}
+    name: ${LOG_DIR:/app/logs}/c2java-api.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ============================================
+# OpenAPI/Swagger 설정
+# ============================================
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+
+---
+# 개발 환경 프로필 (H2 인메모리)
+spring:
+  config:
+    activate:
+      on-profile: dev
+      
+  datasource:
+    url: jdbc:h2:mem:c2java;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    defer-datasource-initialization: true
+    
+  sql:
+    init:
+      mode: always
+    
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+logging:
+  level:
+    com.c2java: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+---
+# 로컬 PostgreSQL 연동 프로필
+spring:
+  config:
+    activate:
+      on-profile: local
+      
+  datasource:
+    url: jdbc:postgresql://localhost:5432/c2java
+    username: c2java
+    password: c2java123
+    driver-class-name: org.postgresql.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        default_schema: public
+
+logging:
+  level:
+    com.c2java: DEBUG
+    org.hibernate.SQL: DEBUG
+
+---
+# 운영 환경 프로필
+spring:
+  config:
+    activate:
+      on-profile: prod
+      
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    com.c2java: INFO
