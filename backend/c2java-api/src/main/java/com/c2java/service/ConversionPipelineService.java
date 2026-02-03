@@ -49,12 +49,15 @@ public class ConversionPipelineService {
         try {
             log.info("Starting conversion pipeline for job: {}", jobId);
             
-            // 1. Airflow DAG 생성
+            // 1. Airflow DAG 생성 (파일 개수 전달)
             job.setStatus(ConversionJob.JobStatus.PENDING);
             job.updateProgress("INITIALIZE", 5);
             jobRepository.save(job);
             
-            String dagId = airflowDagService.createConversionDag(job);
+            int fileCount = sourceFiles != null ? sourceFiles.size() : 0;
+            log.info("Creating DAG for {} files", fileCount);
+            
+            String dagId = airflowDagService.createConversionDag(job, fileCount);
             job.setAirflowDagId(dagId);
             jobRepository.save(job);
             

@@ -113,6 +113,10 @@ conversion:
   rules-dir: ${RULES_DIR:/Users/dongsoo/Desktop/C2JAVA/config/rules}
   library-path: ${LIBRARY_PATH:/app/libs}
   
+  # 배치 처리 설정
+  batch-size: ${CONVERSION_BATCH_SIZE:10}  # 파일 개수/배치 (권장: 5-10)
+  max-parallel-batches: ${CONVERSION_MAX_PARALLEL:3}  # 동시 실행 배치 수
+  
   compile:
     max-retries: 3
     timeout-seconds: 300
