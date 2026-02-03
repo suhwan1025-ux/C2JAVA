@@ -86,13 +86,15 @@ public class AuthService {
             throw new RuntimeException("Email already exists");
         }
 
-        // 사용자 생성
+        // 사용자 생성 (admin으로 시작하는 username은 ADMIN 역할 부여)
+        UserRole role = request.getUsername().startsWith("admin") ? UserRole.ADMIN : UserRole.USER;
+        
         User user = User.builder()
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .email(request.getEmail())
                 .displayName(request.getDisplayName())
-                .role(UserRole.USER)
+                .role(role)
                 .isActive(true)
                 .build();
 

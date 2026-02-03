@@ -4,6 +4,7 @@ import com.c2java.domain.ConversionJob.JobStatus;
 import com.c2java.dto.ConversionRequest;
 import com.c2java.dto.ConversionResponse;
 import com.c2java.service.ConversionService;
+import com.c2java.service.ConversionPipelineService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -29,6 +31,7 @@ import java.util.UUID;
 public class ConversionController {
 
     private final ConversionService conversionService;
+    private final ConversionPipelineService pipelineService;
 
     /**
      * C 파일 업로드 및 변환 시작
@@ -99,5 +102,69 @@ public class ConversionController {
         
         List<ConversionResponse> jobs = conversionService.getJobsByStatus(status);
         return ResponseEntity.ok(jobs);
+    }
+
+    // ========== 파이프라인 API ==========
+
+    /**
+     * 분석 단계 실행 (Airflow Task에서 호출)
+     */
+    @PostMapping("/{jobId}/analyze")
+    @Operation(summary = "파일 분석", description = "C 파일 구조를 분석합니다.")
+    public ResponseEntity<Map<String, Object>> analyzeFiles(@PathVariable String jobId) {
+        Map<String, Object> result = pipelineService.analyzeStep(jobId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 변환 단계 실행
+     */
+    @PostMapping("/{jobId}/convert")
+    @Operation(summary = "코드 변환", description = "C 코드를 Java로 변환합니다.")
+    public ResponseEntity<Map<String, Object>> convertCode(@PathVariable String jobId) {
+        Map<String, Object> result = pipelineService.convertStep(jobId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 컴파일 단계 실행
+     */
+    @PostMapping("/{jobId}/compile")
+    @Operation(summary = "컴파일 검증", description = "생성된 Java 코드를 컴파일합니다.")
+    public ResponseEntity<Map<String, Object>> compileCode(@PathVariable String jobId) {
+        Map<String, Object> result = pipelineService.compileStep(jobId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 테스트 단계 실행
+     */
+    @PostMapping("/{jobId}/test")
+    @Operation(summary = "테스트 실행", description = "JUnit 테스트를 실행합니다.")
+    public ResponseEntity<Map<String, Object>> runTests(@PathVariable String jobId) {
+        Map<String, Object> result = pipelineService.testStep(jobId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 작업 상태 업데이트 (Airflow에서 호출)
+     */
+    @PutMapping("/{jobId}/status")
+    @Operation(summary = "작업 상태 업데이트")
+    public ResponseEntity<Void> updateJobStatus(
+            @PathVariable String jobId,
+            @RequestBody Map<String, Object> statusUpdate) {
+        // TODO: 구현
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 상세 작업 상태 조회 (Airflow 상태 포함)
+     */
+    @GetMapping("/{jobId}/status/detailed")
+    @Operation(summary = "상세 작업 상태", description = "Airflow 배치 상태를 포함한 상세 정보를 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getDetailedStatus(@PathVariable String jobId) {
+        Map<String, Object> status = pipelineService.getJobStatus(jobId);
+        return ResponseEntity.ok(status);
     }
 }

@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
 import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
+import JobMonitor from './pages/JobMonitor';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
 import { useAuthStore } from './store/authStore';
@@ -62,6 +63,7 @@ function App() {
             <Route path="upload" element={<Upload />} />
             <Route path="jobs" element={<Jobs />} />
             <Route path="jobs/:jobId" element={<JobDetail />} />
+            <Route path="jobs/:jobId/monitor" element={<JobMonitor />} />
             <Route path="admin" element={
               <AdminRoute>
                 <Admin />

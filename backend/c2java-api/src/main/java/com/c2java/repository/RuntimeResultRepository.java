@@ -9,5 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface RuntimeResultRepository extends JpaRepository<RuntimeResult, UUID> {
-    List<RuntimeResult> findByJobId(UUID jobId);
+    List<RuntimeResult> findByJobId(String jobId);
 }

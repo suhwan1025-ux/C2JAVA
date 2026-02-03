@@ -1,7 +1,10 @@
 package com.c2java.domain;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -10,61 +13,105 @@ import java.util.UUID;
 
 /**
  * 변환 작업 엔티티
- * 멀티유저 지원
+ * C 파일 업로드부터 Java 생성, 컴파일, 테스트까지 전체 과정 추적
  */
 @Entity
-@Table(name = "conversion_jobs", indexes = {
-    @Index(name = "idx_conversion_jobs_user_id", columnList = "user_id"),
-    @Index(name = "idx_conversion_jobs_status", columnList = "status"),
-    @Index(name = "idx_conversion_jobs_created_at", columnList = "created_at")
-})
-@Getter
-@Setter
+@Table(name = "conversion_jobs")
+@Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ConversionJob {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
-
-    /**
-     * 작업 소유자
-     */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    private User user;
+    @Column(name = "job_id", length = 36)
+    private String jobId;
 
     @Column(name = "job_name", nullable = false)
     private String jobName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    @Builder.Default
-    private JobStatus status = JobStatus.PENDING;
+    @Column(name = "user_id")
+    private UUID userId;
 
-    /**
-     * 작업 우선순위 (높을수록 먼저 처리)
-     */
-    @Column(name = "priority")
-    @Builder.Default
-    private Integer priority = 0;
+    @Column(name = "target_language", nullable = false)
+    private String targetLanguage; // springboot-3.2.5 등
+
+    @Column(name = "llm_provider")
+    private String llmProvider; // qwen3, gpt_oss
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private JobStatus status;
+
+    @Column(name = "current_stage")
+    private String currentStage; // UPLOAD, ANALYZE, CONVERT, COMPILE, TEST, COMPLETE
+
+    @Column(name = "progress", nullable = false)
+    private Integer progress; // 0-100
+
+    // 원본 파일 정보
+    @Column(name = "source_file_path")
+    private String sourceFilePath;
 
     @Column(name = "source_path")
-    private String sourcePath;
+    private String sourcePath; // 기존 코드 호환
+
+    @Column(name = "source_file_count")
+    private Integer sourceFileCount;
+
+    // 생성 파일 정보
+    @Column(name = "generated_file_count")
+    private Integer generatedFileCount;
 
     @Column(name = "output_path")
     private String outputPath;
 
-    @Column(name = "llm_provider")
-    private String llmProvider;
+    // Airflow 정보
+    @Column(name = "airflow_dag_id")
+    private String airflowDagId;
 
-    /**
-     * JDBC 설정 (JSON)
-     */
-    @Column(name = "jdbc_config", columnDefinition = "TEXT")
-    private String jdbcConfig;
+    @Column(name = "airflow_run_id")
+    private String airflowRunId;
+
+    // 분석 결과
+    @Column(name = "function_count")
+    private Integer functionCount;
+
+    @Column(name = "struct_count")
+    private Integer structCount;
+
+    @Column(name = "sql_count")
+    private Integer sqlCount;
+
+    @Column(name = "review_required_count")
+    private Integer reviewRequiredCount;
+
+    // 검증 결과
+    @Column(name = "compile_success")
+    private Boolean compileSuccess;
+
+    @Column(name = "compile_attempts")
+    private Integer compileAttempts; // 컴파일 시도 횟수
+
+    @Column(name = "compile_errors")
+    @Lob
+    private String compileErrors;
+
+    @Column(name = "test_success")
+    private Boolean testSuccess;
+
+    @Column(name = "test_results")
+    @Lob
+    private String testResults;
+
+    // 에러 정보
+    @Column(name = "error_message")
+    @Lob
+    private String errorMessage;
+
+    @Column(name = "error_stack_trace")
+    @Lob
+    private String errorStackTrace;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
@@ -77,62 +124,79 @@ public class ConversionJob {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
-    @Column(name = "error_message", columnDefinition = "TEXT")
-    private String errorMessage;
-
-    @Column(name = "compile_attempts")
-    @Builder.Default
-    private Integer compileAttempts = 0;
-
-    /**
-     * 작업 실행 서버 (분산 처리용)
-     */
-    @Column(name = "worker_id")
-    private String workerId;
-
-    /**
-     * 작업 상태 열거형
-     */
     public enum JobStatus {
-        PENDING,      // 대기 중
-        ANALYZING,    // 분석 중
-        CONVERTING,   // 변환 중
-        COMPILING,    // 컴파일 중
-        TESTING,      // 테스트 중
-        REVIEWING,    // 리뷰 생성 중
+        PENDING,      // 대기중
+        ANALYZING,    // 분석중
+        CONVERTING,   // 변환중
+        COMPILING,    // 컴파일중
+        TESTING,      // 테스트중
+        REVIEWING,    // 리뷰중
         COMPLETED,    // 완료
-        FAILED        // 실패
+        FAILED,       // 실패
+        CANCELLED     // 취소
     }
 
-    /**
-     * 작업 시작 처리
-     */
+    @PrePersist
+    public void prePersist() {
+        if (this.jobId == null) {
+            this.jobId = UUID.randomUUID().toString();
+        }
+        if (this.status == null) {
+            this.status = JobStatus.PENDING;
+        }
+        if (this.progress == null) {
+            this.progress = 0;
+        }
+        if (this.currentStage == null) {
+            this.currentStage = "UPLOAD";
+        }
+    }
+
+    public void updateProgress(String stage, int progress) {
+        this.currentStage = stage;
+        this.progress = progress;
+    }
+
+    public void markCompleted() {
+        this.status = JobStatus.COMPLETED;
+        this.progress = 100;
+        this.completedAt = LocalDateTime.now();
+    }
+
+    public void markFailed(String error) {
+        this.status = JobStatus.FAILED;
+        this.errorMessage = error;
+    }
+
+    // 기존 코드 호환성을 위한 메서드들
+    public String getId() {
+        return this.jobId;
+    }
+
+    public String getSourcePath() {
+        return this.sourceFilePath;
+    }
+
+    public void incrementCompileAttempts() {
+        if (this.compileAttempts == null) {
+            this.compileAttempts = 0;
+        }
+        this.compileAttempts++;
+    }
+
     public void start() {
         this.status = JobStatus.ANALYZING;
+        this.progress = 5;
     }
 
-    /**
-     * 작업 완료 처리
-     */
-    public void complete(String output) {
-        this.completedAt = LocalDateTime.now();
-        this.outputPath = output;
+    public void fail(String error) {
+        markFailed(error);
+    }
+
+    public void complete(String outputPath) {
         this.status = JobStatus.COMPLETED;
-    }
-
-    /**
-     * 작업 실패 처리
-     */
-    public void fail(String errorMessage) {
+        this.outputPath = outputPath;
+        this.progress = 100;
         this.completedAt = LocalDateTime.now();
-        this.errorMessage = errorMessage;
-        this.status = JobStatus.FAILED;
-    }
-
-    /**
-     * 컴파일 시도 횟수 증가
-     */
-    public void incrementCompileAttempts() {
-        this.compileAttempts++;
     }
 }

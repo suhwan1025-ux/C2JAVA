@@ -6,15 +6,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.PumpStreamHandler;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * CLI 서비스
- * AIDER, Fabric 등의 CLI 도구와 연동합니다.
+ * AIDER, Fabric, Cursor CLI, OpenAI 등의 CLI 도구와 연동합니다.
  */
 @Service
 @RequiredArgsConstructor
@@ -22,6 +29,16 @@ import java.nio.charset.StandardCharsets;
 public class CliService {
 
     private final CliProperties cliProperties;
+    private final EnvSyncService envSyncService;
+
+    @Value("${cli.cursor.enabled:false}")
+    private boolean cursorCliEnabled;
+
+    @Value("${cli.cursor.path:/usr/local/bin/cursor}")
+    private String cursorCliPath;
+
+    @Value("${cli.openai.enabled:false}")
+    private boolean openaiEnabled;
 
     /**
      * Fabric을 사용한 코드 분석
@@ -79,6 +96,145 @@ public class CliService {
         
         String instructions = "Fix the following compile errors:\n" + errorLog;
         return convertWithAider(filePath, null, instructions);
+    }
+
+    /**
+     * Cursor CLI를 사용한 코드 변환 (외부망 전용)
+     * Cursor CLI 실제 API: agent -p "prompt" --workspace /path --output-format json --model gpt-5
+     */
+    public String convertWithCursorCli(String sourceFilePath, String instructions) throws IOException {
+        if (!cursorCliEnabled) {
+            log.info("Cursor CLI is disabled");
+            return null;
+        }
+
+        log.info("Converting file with Cursor CLI: {}", sourceFilePath);
+        
+        try {
+            // Cursor CLI 환경변수 로드
+            Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+            String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "gpt-5");
+            String apiKey = cliConfig.get("CURSOR_API_KEY");
+            
+            Path sourceFile = Path.of(sourceFilePath);
+            Path workspaceDir = sourceFile.getParent();
+            
+            // agent -p "instructions" --workspace /path --output-format json --model gpt-5
+            CommandLine cmdLine = new CommandLine(cursorCliPath);
+            cmdLine.addArgument("-p"); // print mode (non-interactive)
+            cmdLine.addArgument(instructions, false); // quote=false to preserve special chars
+            cmdLine.addArgument("--workspace");
+            cmdLine.addArgument(workspaceDir.toString());
+            cmdLine.addArgument("--output-format");
+            cmdLine.addArgument("json");
+            cmdLine.addArgument("--model");
+            cmdLine.addArgument(model);
+            
+            // API 키가 있으면 추가
+            if (apiKey != null && !apiKey.isEmpty()) {
+                cmdLine.addArgument("--api-key");
+                cmdLine.addArgument(apiKey);
+            }
+            
+            return executeCommand(cmdLine);
+        } catch (IOException e) {
+            log.warn("Cursor CLI execution failed, will fallback to direct LLM API", e);
+            return null;
+        }
+    }
+
+    /**
+     * OpenAI API 직접 호출 (외부망 전용)
+     */
+    public String convertWithOpenAi(String sourceCode, String conversionRules, String instructions) {
+        if (!openaiEnabled) {
+            log.info("OpenAI CLI is disabled");
+            return null;
+        }
+
+        try {
+            Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+            String apiKey = cliConfig.get("OPENAI_API_KEY");
+            String model = cliConfig.getOrDefault("OPENAI_MODEL", "gpt-4");
+
+            if (apiKey == null || apiKey.isEmpty()) {
+                log.warn("OpenAI API key not configured");
+                return null;
+            }
+
+            log.info("Converting code with OpenAI: {}", model);
+
+            WebClient client = WebClient.builder()
+                    .baseUrl("https://api.openai.com/v1")
+                    .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .build();
+
+            String fullPrompt = String.format("""
+                    [변환 규칙]
+                    %s
+                    
+                    [원본 C 코드]
+                    ```c
+                    %s
+                    ```
+                    
+                    [요청사항]
+                    %s
+                    """, conversionRules, sourceCode, instructions);
+
+            Map<String, Object> request = Map.of(
+                    "model", model,
+                    "messages", new Object[]{
+                            Map.of("role", "user", "content", fullPrompt)
+                    },
+                    "max_tokens", 8192,
+                    "temperature", 0.1
+            );
+
+            Map<String, Object> response = client.post()
+                    .uri("/chat/completions")
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response != null) {
+                java.util.List<Map<String, Object>> choices = 
+                    (java.util.List<Map<String, Object>>) response.get("choices");
+                if (choices != null && !choices.isEmpty()) {
+                    Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+                    return (String) message.get("content");
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.error("OpenAI API call failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * 활성 CLI 도구로 변환 (자동 선택)
+     */
+    public String convertWithActiveCli(String sourceFilePath, String sourceCode, 
+                                      String conversionRules, String instructions) throws IOException {
+        Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+        String activeTool = cliConfig.getOrDefault("ACTIVE_CLI_TOOL", "aider");
+
+        log.info("Using active CLI tool: {}", activeTool);
+
+        return switch (activeTool.toLowerCase()) {
+            case "cursor" -> convertWithCursorCli(sourceFilePath, instructions);
+            case "openai" -> convertWithOpenAi(sourceCode, conversionRules, instructions);
+            case "aider" -> convertWithAider(sourceFilePath, null, instructions);
+            case "fabric" -> analyzeWithFabric(sourceFilePath);
+            default -> {
+                log.warn("Unknown CLI tool: {}, falling back to AIDER", activeTool);
+                yield convertWithAider(sourceFilePath, null, instructions);
+            }
+        };
     }
 
     /**

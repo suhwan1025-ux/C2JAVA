@@ -1,15 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
-import { Upload as UploadIcon, FileCode, X, Loader2, CheckCircle, Settings } from 'lucide-react';
+import { Upload as UploadIcon, FileCode, X, Loader2, CheckCircle, Settings, BookOpen } from 'lucide-react';
 import { api } from '../lib/api';
+
+interface AvailableLanguage {
+  id: string;
+  name: string;
+}
 
 export default function Upload() {
   const navigate = useNavigate();
   const [files, setFiles] = useState<File[]>([]);
-  const [llmProvider, setLlmProvider] = useState('qwen3');
   const [jobName, setJobName] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [jdbcConfig, setJdbcConfig] = useState({
     enabled: false,
     url: '',
@@ -19,14 +24,30 @@ export default function Upload() {
   });
   const [showJdbc, setShowJdbc] = useState(false);
 
+  // 사용 가능한 언어 목록 조회
+  const { data: languages, isLoading: languagesLoading } = useQuery<AvailableLanguage[]>({
+    queryKey: ['availableLanguages'],
+    queryFn: api.listAvailableLanguages,
+  });
+
+  // 첫 번째 언어를 기본값으로 설정
+  useEffect(() => {
+    if (languages && languages.length > 0 && !selectedLanguage) {
+      setSelectedLanguage(languages[0].id);
+    }
+  }, [languages, selectedLanguage]);
+
   const uploadMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData();
       files.forEach((file) => {
         formData.append('files', file);
       });
-      formData.append('llmProvider', llmProvider);
       formData.append('jobName', jobName || files[0]?.name || 'Conversion Job');
+      // 선택한 대상 언어 (변환 규칙)
+      if (selectedLanguage) {
+        formData.append('targetLanguage', selectedLanguage);
+      }
       if (jdbcConfig.enabled) {
         formData.append('jdbcConfig', JSON.stringify(jdbcConfig));
       }
@@ -136,32 +157,53 @@ export default function Upload() {
             변환 설정
           </h3>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                작업 이름
-              </label>
-              <input
-                type="text"
-                value={jobName}
-                onChange={(e) => setJobName(e.target.value)}
-                placeholder="예: UserService"
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                LLM 모델
-              </label>
-              <select
-                value={llmProvider}
-                onChange={(e) => setLlmProvider(e.target.value)}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="qwen3">QWEN3 VL (235B)</option>
-                <option value="gpt_oss">GPT OSS</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              작업 이름
+            </label>
+            <input
+              type="text"
+              value={jobName}
+              onChange={(e) => setJobName(e.target.value)}
+              placeholder="예: UserService"
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            />
+          </div>
+
+          {/* 대상 언어 선택 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <BookOpen className="h-4 w-4" />
+              변환 대상 언어
+            </label>
+            {languagesLoading ? (
+              <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                언어 목록 로딩 중...
+              </div>
+            ) : languages && languages.length > 0 ? (
+              <>
+                <select
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                >
+                  {languages.map((lang) => (
+                    <option key={lang.id} value={lang.id}>
+                      {lang.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  선택한 언어의 변환 규칙과 프로젝트 구조에 따라 변환됩니다.
+                </p>
+              </>
+            ) : (
+              <div className="p-3 bg-yellow-50 text-yellow-700 rounded-lg text-sm">
+                <p className="font-medium">등록된 언어가 없습니다.</p>
+                <p className="text-xs mt-1">관리자에게 문의하여 변환 규칙을 추가해주세요.</p>
+              </div>
+            )}
           </div>
 
           {/* JDBC 설정 (옵션) */}

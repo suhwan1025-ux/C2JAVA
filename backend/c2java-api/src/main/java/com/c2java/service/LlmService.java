@@ -1,191 +1,174 @@
 package com.c2java.service;
 
-import com.c2java.config.LlmProperties;
-import com.c2java.domain.ConversionJob;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import okhttp3.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 /**
- * LLM 서비스
- * 사내 LLM (QWEN3 VL, GPT OSS)과 연동하여 코드 변환을 수행합니다.
+ * LLM API 연동 서비스
+ * QWEN3 또는 GPT OSS와 통신하여 코드 변환
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class LlmService {
 
-    private final LlmProperties llmProperties;
-    private final ObjectMapper objectMapper;
-    
-    private final OkHttpClient httpClient = new OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(300, TimeUnit.SECONDS)  // LLM 응답은 시간이 걸릴 수 있음
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .build();
+    private final EnvSyncService envSyncService;
+
+    @Value("${llm.timeout:180}")
+    private int timeoutSeconds;
 
     /**
-     * C 코드를 Java(Spring Boot)로 변환
+     * LLM API 호출하여 코드 변환
      */
-    public String convertToJava(ConversionJob job) throws IOException {
-        String cCode = Files.readString(Path.of(job.getSourcePath()));
-        
-        // 변환 프롬프트 생성
-        String prompt = buildConversionPrompt(cCode);
-        
-        // LLM 호출
-        String javaCode = callLlm(prompt, job.getLlmProvider());
-        
-        // 결과 저장
-        return saveConvertedCode(job, javaCode);
+    public String convertCode(String sourceCode, String conversionRules, String structureRules, String prompt) {
+        try {
+            // 환경 변수에서 LLM 설정 로드
+            Map<String, String> llmConfig = envSyncService.loadLlmEnvVariables();
+            String provider = llmConfig.getOrDefault("ACTIVE_LLM_PROVIDER", "qwen3");
+            
+            log.info("Using LLM provider: {}", provider);
+            
+            if ("qwen3".equals(provider)) {
+                return callQwen3(llmConfig, sourceCode, conversionRules, structureRules, prompt);
+            } else {
+                return callGptOss(llmConfig, sourceCode, conversionRules, structureRules, prompt);
+            }
+        } catch (Exception e) {
+            log.error("LLM API call failed", e);
+            throw new RuntimeException("LLM API 호출 실패: " + e.getMessage(), e);
+        }
     }
 
     /**
-     * 변환 프롬프트 생성
+     * QWEN3 API 호출
      */
-    private String buildConversionPrompt(String cCode) {
-        return """
-            You are an expert software engineer specializing in converting C code to Java Spring Boot applications.
-            
-            ## Task
-            Convert the following C code to Java Spring Boot 3.2.5 code.
-            
-            ## Requirements
-            1. Use Java 21 LTS features where appropriate
-            2. Follow Spring Boot 3.2.5 best practices
-            3. Use proper package structure (com.company.converted)
-            4. Include necessary imports
-            5. Convert C structs to Java classes with Lombok annotations (@Data, @Builder)
-            6. Convert C functions to appropriate Java methods
-            7. Handle memory management (C malloc/free) appropriately for Java
-            8. Convert C standard library calls to Java equivalents
-            9. Add proper exception handling
-            10. Include Javadoc comments
-            
-            ## C Code to Convert
-            ```c
-            %s
-            ```
-            
-            ## Output Format
-            Provide the complete Java code with proper package declaration, imports, and class structure.
-            Use markdown code blocks for the Java code.
-            """.formatted(cCode);
-    }
-
-    /**
-     * LLM API 호출
-     */
-    private String callLlm(String prompt, String provider) throws IOException {
-        LlmProperties.LlmConfig config = getConfigForProvider(provider);
+    private String callQwen3(Map<String, String> config, String sourceCode, 
+                             String conversionRules, String structureRules, String prompt) {
+        String apiUrl = config.get("QWEN3_API_URL");
+        String apiKey = config.get("QWEN3_API_KEY");
+        String model = config.get("QWEN3_MODEL_NAME");
+        int maxTokens = Integer.parseInt(config.getOrDefault("QWEN3_MAX_TOKENS", "8192"));
+        double temperature = Double.parseDouble(config.getOrDefault("QWEN3_TEMPERATURE", "0.1"));
         
-        // OpenAI 호환 API 형식 사용
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", config.getModelName());
-        requestBody.put("messages", List.of(
-                Map.of("role", "system", "content", "You are an expert code converter specializing in C to Java conversion."),
-                Map.of("role", "user", "content", prompt)
-        ));
-        requestBody.put("max_tokens", config.getMaxTokens());
-        requestBody.put("temperature", config.getTemperature());
-        
-        String jsonBody = objectMapper.writeValueAsString(requestBody);
-        
-        Request request = new Request.Builder()
-                .url(config.getApiUrl() + "/chat/completions")
-                .addHeader("Authorization", "Bearer " + config.getApiKey())
-                .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
+        WebClient client = WebClient.builder()
+                .baseUrl(apiUrl)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .build();
         
-        log.info("Calling LLM API: {} with model: {}", config.getApiUrl(), config.getModelName());
+        String fullPrompt = buildPrompt(sourceCode, conversionRules, structureRules, prompt);
         
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("LLM API call failed: " + response.code() + " - " + response.message());
-            }
-            
-            String responseBody = response.body().string();
-            JsonNode jsonNode = objectMapper.readTree(responseBody);
-            
-            return jsonNode
-                    .path("choices")
-                    .path(0)
-                    .path("message")
-                    .path("content")
-                    .asText();
-        }
-    }
-
-    /**
-     * Provider에 따른 설정 반환
-     */
-    private LlmProperties.LlmConfig getConfigForProvider(String provider) {
-        if (provider == null || provider.isBlank()) {
-            provider = llmProperties.getActiveProvider();
-        }
+        Map<String, Object> request = new HashMap<>();
+        request.put("model", model);
+        request.put("messages", new Object[]{
+                Map.of("role", "user", "content", fullPrompt)
+        });
+        request.put("max_tokens", maxTokens);
+        request.put("temperature", temperature);
         
-        return switch (provider.toLowerCase()) {
-            case "qwen3" -> llmProperties.getQwen3();
-            case "gpt_oss", "gpt-oss" -> llmProperties.getGptOss();
-            default -> throw new IllegalArgumentException("Unknown LLM provider: " + provider);
-        };
-    }
-
-    /**
-     * 변환된 코드 저장
-     */
-    private String saveConvertedCode(ConversionJob job, String javaCode) throws IOException {
-        String outputDir = System.getProperty("conversion.output-dir", "/app/output");
-        Path outputPath = Paths.get(outputDir, job.getId().toString());
-        Files.createDirectories(outputPath);
+        String response = client.post()
+                .uri("/chat/completions")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .map(resp -> {
+                    Map<String, Object> choices = ((java.util.List<Map<String, Object>>) resp.get("choices")).get(0);
+                    Map<String, Object> message = (Map<String, Object>) choices.get("message");
+                    return (String) message.get("content");
+                })
+                .block();
         
-        // Java 코드 추출 (마크다운 코드 블록에서)
-        String cleanCode = extractJavaCode(javaCode);
-        
-        // 메인 Java 파일 저장
-        Path javaFilePath = outputPath.resolve("Application.java");
-        Files.writeString(javaFilePath, cleanCode);
-        
-        // 전체 응답도 저장 (디버깅용)
-        Path responseFilePath = outputPath.resolve("llm_response.txt");
-        Files.writeString(responseFilePath, javaCode);
-        
-        return outputPath.toString();
-    }
-
-    /**
-     * 마크다운 코드 블록에서 Java 코드 추출
-     */
-    private String extractJavaCode(String response) {
-        // ```java ... ``` 형식에서 코드 추출
-        int startIdx = response.indexOf("```java");
-        if (startIdx == -1) {
-            startIdx = response.indexOf("```");
-        }
-        
-        if (startIdx != -1) {
-            int codeStart = response.indexOf("\n", startIdx) + 1;
-            int codeEnd = response.indexOf("```", codeStart);
-            if (codeEnd != -1) {
-                return response.substring(codeStart, codeEnd).trim();
-            }
-        }
-        
-        // 코드 블록이 없으면 전체 응답 반환
         return response;
+    }
+
+    /**
+     * GPT OSS API 호출
+     */
+    private String callGptOss(Map<String, String> config, String sourceCode,
+                              String conversionRules, String structureRules, String prompt) {
+        String apiUrl = config.get("GPT_OSS_API_URL");
+        String apiKey = config.get("GPT_OSS_API_KEY");
+        String model = config.get("GPT_OSS_MODEL_NAME");
+        int maxTokens = Integer.parseInt(config.getOrDefault("GPT_OSS_MAX_TOKENS", "8192"));
+        double temperature = Double.parseDouble(config.getOrDefault("GPT_OSS_TEMPERATURE", "0.1"));
+        
+        WebClient client = WebClient.builder()
+                .baseUrl(apiUrl)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .build();
+        
+        String fullPrompt = buildPrompt(sourceCode, conversionRules, structureRules, prompt);
+        
+        Map<String, Object> request = new HashMap<>();
+        request.put("model", model);
+        request.put("messages", new Object[]{
+                Map.of("role", "user", "content", fullPrompt)
+        });
+        request.put("max_tokens", maxTokens);
+        request.put("temperature", temperature);
+        
+        String response = client.post()
+                .uri("/chat/completions")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .map(resp -> {
+                    Map<String, Object> choices = ((java.util.List<Map<String, Object>>) resp.get("choices")).get(0);
+                    Map<String, Object> message = (Map<String, Object>) choices.get("message");
+                    return (String) message.get("content");
+                })
+                .block();
+        
+        return response;
+    }
+
+    /**
+     * LLM 프롬프트 구성
+     */
+    private String buildPrompt(String sourceCode, String conversionRules, 
+                               String structureRules, String customPrompt) {
+        return String.format("""
+                당신은 C 코드를 Spring Boot 3.2.5 Java 코드로 변환하는 전문가입니다.
+                
+                [변환 규칙]
+                %s
+                
+                [프로젝트 구조 규칙]
+                %s
+                
+                [원본 C 코드]
+                ```c
+                %s
+                ```
+                
+                [요청사항]
+                %s
+                
+                [중요 지침]
+                1. 규칙에 정의된 방식으로만 변환하세요
+                2. 불확실한 부분은 [C2JAVA-REVIEW] 태그와 함께 원본을 주석으로 보존하세요
+                3. SQL은 100%% 원본 그대로 유지하세요
+                4. 모든 변환에 원본 정보를 주석으로 명시하세요
+                5. 유추하거나 거짓으로 변환하지 마세요
+                
+                변환된 Java 코드를 생성하세요.
+                """, 
+                conversionRules, 
+                structureRules, 
+                sourceCode, 
+                customPrompt);
     }
 }

@@ -18,7 +18,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class ConversionResponse {
     
-    private UUID id;
+    private String id;
     private String jobName;
     private String status;
     private String sourcePath;

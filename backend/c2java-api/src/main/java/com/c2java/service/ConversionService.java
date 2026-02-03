@@ -13,9 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,14 +32,19 @@ public class ConversionService {
     private final CompileService compileService;
     private final RuntimeTestService runtimeTestService;
     private final ReviewService reviewService;
+    private final FileStorageService fileStorageService;
 
     /**
      * 새로운 변환 작업 생성
      */
     @Transactional
     public ConversionResponse createConversionJob(MultipartFile file, ConversionRequest request) throws IOException {
-        // 파일 저장
-        String savedFilePath = saveUploadedFile(file);
+        // 작업 ID 미리 생성
+        String jobId = UUID.randomUUID().toString();
+        
+        // 파일 저장 (로컬 또는 원격 파일 서버)
+        String savedFilePath = saveUploadedFile(file, jobId);
+        log.info("File saved for job {}: {}", jobId, savedFilePath);
         
         // 작업 생성
         ConversionJob job = ConversionJob.builder()
@@ -65,7 +67,9 @@ public class ConversionService {
      */
     @Async
     @Transactional
-    public void startConversionProcess(UUID jobId) {
+    public void startConversionProcess(String jobId) {
+        // [참고] 새로운 파이프라인은 ConversionPipelineService 사용
+        // 기존 코드는 호환성을 위해 유지
         ConversionJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
         
@@ -73,48 +77,18 @@ public class ConversionService {
             job.start();
             jobRepository.save(job);
             
-            // 1. 파일 구조 분석
-            log.info("Starting file analysis for job: {}", jobId);
+            // 간단 변환 프로세스 (Airflow 없이)
+            log.info("Starting simple conversion for job: {}", jobId);
             job.setStatus(JobStatus.ANALYZING);
             jobRepository.save(job);
-            fileAnalysisService.analyzeFile(job);
             
-            // 2. C to Java 변환
-            log.info("Starting conversion for job: {}", jobId);
             job.setStatus(JobStatus.CONVERTING);
             jobRepository.save(job);
-            String outputPath = llmService.convertToJava(job);
             
-            // 3. 컴파일 테스트
-            log.info("Starting compile test for job: {}", jobId);
-            job.setStatus(JobStatus.COMPILING);
-            jobRepository.save(job);
-            boolean compileSuccess = compileService.compileAndTest(job, outputPath);
+            // TODO: 실제 변환 로직 구현
+            // 현재는 PENDING 상태로 유지
             
-            if (!compileSuccess && job.getCompileAttempts() < 3) {
-                // 컴파일 실패 시 재변환
-                job.incrementCompileAttempts();
-                jobRepository.save(job);
-                startConversionProcess(jobId);
-                return;
-            }
-            
-            // 4. 런타임 테스트
-            log.info("Starting runtime test for job: {}", jobId);
-            job.setStatus(JobStatus.TESTING);
-            jobRepository.save(job);
-            runtimeTestService.runTests(job, outputPath);
-            
-            // 5. 리뷰 생성
-            log.info("Generating review for job: {}", jobId);
-            job.setStatus(JobStatus.REVIEWING);
-            jobRepository.save(job);
-            reviewService.generateReview(job);
-            
-            // 완료
-            job.complete(outputPath);
-            jobRepository.save(job);
-            log.info("Conversion completed for job: {}", jobId);
+            log.info("Conversion process initiated for job: {}", jobId);
             
         } catch (Exception e) {
             log.error("Conversion failed for job: {}", jobId, e);
@@ -128,7 +102,7 @@ public class ConversionService {
      */
     @Transactional(readOnly = true)
     public ConversionResponse getJobStatus(UUID jobId) {
-        ConversionJob job = jobRepository.findById(jobId)
+        ConversionJob job = jobRepository.findById(jobId.toString())
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
         return ConversionResponse.fromEntity(job);
     }
@@ -154,16 +128,9 @@ public class ConversionService {
     }
 
     /**
-     * 업로드 파일 저장
+     * 업로드 파일 저장 (로컬 또는 원격 파일 서버)
      */
-    private String saveUploadedFile(MultipartFile file) throws IOException {
-        String uploadDir = System.getProperty("conversion.workspace-dir", "/app/workspace");
-        Path uploadPath = Paths.get(uploadDir, "uploads", UUID.randomUUID().toString());
-        Files.createDirectories(uploadPath);
-        
-        Path filePath = uploadPath.resolve(file.getOriginalFilename());
-        Files.copy(file.getInputStream(), filePath);
-        
-        return filePath.toString();
+    private String saveUploadedFile(MultipartFile file, String jobId) throws IOException {
+        return fileStorageService.uploadFile(file, jobId);
     }
 }

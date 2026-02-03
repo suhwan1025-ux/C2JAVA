@@ -80,6 +80,32 @@ export const api = {
     return response.data;
   },
 
+  // Pipeline APIs
+  getDetailedJobStatus: async (jobId: string) => {
+    const response = await axiosInstance.get(`/v1/conversions/${jobId}/status/detailed`);
+    return response.data;
+  },
+
+  analyzeFiles: async (jobId: string) => {
+    const response = await axiosInstance.post(`/v1/conversions/${jobId}/analyze`);
+    return response.data;
+  },
+
+  convertCode: async (jobId: string) => {
+    const response = await axiosInstance.post(`/v1/conversions/${jobId}/convert`);
+    return response.data;
+  },
+
+  compileCode: async (jobId: string) => {
+    const response = await axiosInstance.post(`/v1/conversions/${jobId}/compile`);
+    return response.data;
+  },
+
+  runTests: async (jobId: string) => {
+    const response = await axiosInstance.post(`/v1/conversions/${jobId}/test`);
+    return response.data;
+  },
+
   // Admin APIs
   getSystemStatus: async () => {
     const response = await axiosInstance.get('/v1/admin/status');
@@ -113,6 +139,103 @@ export const api = {
 
   getStatistics: async () => {
     const response = await axiosInstance.get('/v1/admin/statistics');
+    return response.data;
+  },
+
+  // 환경변수 파일 동기화 APIs
+  getEnvFileInfo: async () => {
+    const response = await axiosInstance.get('/v1/admin/env/file/info');
+    return response.data;
+  },
+
+  getLlmEnvVariables: async () => {
+    const response = await axiosInstance.get('/v1/admin/env/llm');
+    return response.data;
+  },
+
+  saveLlmEnvVariables: async (envVars: Record<string, string>) => {
+    const response = await axiosInstance.put('/v1/admin/env/llm', envVars);
+    return response.data;
+  },
+
+  getCliEnvVariables: async () => {
+    const response = await axiosInstance.get('/v1/admin/env/cli');
+    return response.data;
+  },
+
+  saveCliEnvVariables: async (envVars: Record<string, string>) => {
+    const response = await axiosInstance.put('/v1/admin/env/cli', envVars);
+    return response.data;
+  },
+
+  // 사용자 통계 API
+  getUserStats: async () => {
+    const response = await axiosInstance.get('/v1/admin/users/stats');
+    return response.data;
+  },
+
+  // 파일 서버 API
+  getFileServerStatus: async () => {
+    const response = await axiosInstance.get('/v1/admin/file-server/status');
+    return response.data;
+  },
+
+  testFileServerConnection: async () => {
+    const response = await axiosInstance.post('/v1/admin/file-server/test');
+    return response.data;
+  },
+
+  // Rules (언어별 변환 규칙) APIs
+  listLanguages: async () => {
+    const response = await axiosInstance.get('/v1/rules/languages');
+    return response.data;
+  },
+
+  listAvailableLanguages: async () => {
+    const response = await axiosInstance.get('/v1/rules/languages/available');
+    return response.data;
+  },
+
+  getLanguageDetail: async (languageName: string) => {
+    const response = await axiosInstance.get(`/v1/rules/languages/${languageName}`);
+    return response.data;
+  },
+
+  createLanguage: async (name: string) => {
+    const response = await axiosInstance.post('/v1/rules/languages', { name });
+    return response.data;
+  },
+
+  deleteLanguage: async (languageName: string) => {
+    const response = await axiosInstance.delete(`/v1/rules/languages/${languageName}`);
+    return response.data;
+  },
+
+  saveConversionRules: async (languageName: string, content: string) => {
+    const response = await axiosInstance.put(`/v1/rules/languages/${languageName}/conversion-rules`, { content });
+    return response.data;
+  },
+
+  saveProjectStructure: async (languageName: string, content: string) => {
+    const response = await axiosInstance.put(`/v1/rules/languages/${languageName}/project-structure`, { content });
+    return response.data;
+  },
+
+  uploadConversionRules: async (languageName: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/v1/rules/languages/${languageName}/conversion-rules/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  uploadProjectStructure: async (languageName: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/v1/rules/languages/${languageName}/project-structure/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 

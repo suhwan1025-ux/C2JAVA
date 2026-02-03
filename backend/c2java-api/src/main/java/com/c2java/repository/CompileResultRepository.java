@@ -9,5 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface CompileResultRepository extends JpaRepository<CompileResult, UUID> {
-    List<CompileResult> findByJobIdOrderByAttemptNumberDesc(UUID jobId);
+    List<CompileResult> findByJobIdOrderByAttemptNumberDesc(String jobId);
 }

@@ -89,4 +89,86 @@ public class AdminController {
     public ResponseEntity<Map<String, Object>> getStatistics() {
         return ResponseEntity.ok(adminService.getStatistics());
     }
+
+    // ========== 환경변수 파일 동기화 API ==========
+
+    /**
+     * 환경변수 파일 정보 조회
+     */
+    @GetMapping("/env/file/info")
+    @Operation(summary = "환경변수 파일 정보", description = "환경변수 파일 경로 및 존재 여부를 확인합니다.")
+    public ResponseEntity<Map<String, Object>> getEnvFileInfo() {
+        return ResponseEntity.ok(adminService.getEnvFileInfo());
+    }
+
+    /**
+     * 환경변수 파일에서 LLM 설정 읽기
+     */
+    @GetMapping("/env/llm")
+    @Operation(summary = "환경변수 파일 LLM 설정 읽기", description = "환경변수 파일에서 LLM 관련 설정을 읽어옵니다.")
+    public ResponseEntity<Map<String, String>> getLlmEnvVariables() {
+        return ResponseEntity.ok(adminService.getLlmEnvVariables());
+    }
+
+    /**
+     * 환경변수 파일에 LLM 설정 저장
+     */
+    @PutMapping("/env/llm")
+    @Operation(summary = "환경변수 파일 LLM 설정 저장", description = "환경변수 파일에 LLM 관련 설정을 저장합니다.")
+    public ResponseEntity<Map<String, Object>> saveLlmEnvVariables(
+            @RequestBody Map<String, String> envVars) {
+        adminService.saveLlmEnvVariables(envVars);
+        return ResponseEntity.ok(Map.of("success", true, "message", "LLM 환경변수가 저장되었습니다."));
+    }
+
+    /**
+     * 환경변수 파일에서 CLI 설정 읽기
+     */
+    @GetMapping("/env/cli")
+    @Operation(summary = "환경변수 파일 CLI 설정 읽기", description = "환경변수 파일에서 CLI 관련 설정을 읽어옵니다.")
+    public ResponseEntity<Map<String, String>> getCliEnvVariables() {
+        return ResponseEntity.ok(adminService.getCliEnvVariables());
+    }
+
+    /**
+     * 환경변수 파일에 CLI 설정 저장
+     */
+    @PutMapping("/env/cli")
+    @Operation(summary = "환경변수 파일 CLI 설정 저장", description = "환경변수 파일에 CLI 관련 설정을 저장합니다.")
+    public ResponseEntity<Map<String, Object>> saveCliEnvVariables(
+            @RequestBody Map<String, String> envVars) {
+        adminService.saveCliEnvVariables(envVars);
+        return ResponseEntity.ok(Map.of("success", true, "message", "CLI 환경변수가 저장되었습니다."));
+    }
+
+    // ========== 사용자 통계 API ==========
+
+    /**
+     * 사용자 통계 조회
+     */
+    @GetMapping("/users/stats")
+    @Operation(summary = "사용자 통계", description = "사용자 현황 통계를 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getUserStats() {
+        return ResponseEntity.ok(adminService.getUserStats());
+    }
+
+    // ========== 파일 서버 API ==========
+
+    /**
+     * 파일 서버 상태 조회
+     */
+    @GetMapping("/file-server/status")
+    @Operation(summary = "파일 서버 상태", description = "파일 서버 설정 및 연결 상태를 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getFileServerStatus() {
+        return ResponseEntity.ok(adminService.getFileServerStatus());
+    }
+
+    /**
+     * 파일 서버 연결 테스트
+     */
+    @PostMapping("/file-server/test")
+    @Operation(summary = "파일 서버 연결 테스트", description = "파일 서버 연결 상태를 테스트합니다.")
+    public ResponseEntity<Map<String, Object>> testFileServerConnection() {
+        return ResponseEntity.ok(adminService.testFileServerConnection());
+    }
 }

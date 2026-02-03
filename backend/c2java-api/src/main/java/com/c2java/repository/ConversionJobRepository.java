@@ -1,31 +1,28 @@
 package com.c2java.repository;
 
 import com.c2java.domain.ConversionJob;
-import com.c2java.domain.ConversionJob.JobStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 변환 작업 리포지토리
+ * 변환 작업 Repository
  */
 @Repository
-public interface ConversionJobRepository extends JpaRepository<ConversionJob, UUID> {
+public interface ConversionJobRepository extends JpaRepository<ConversionJob, String> {
     
-    /**
-     * 생성일 역순으로 모든 작업 조회
-     */
+    List<ConversionJob> findByUserIdOrderByCreatedAtDesc(UUID userId);
+    
+    List<ConversionJob> findByStatusOrderByCreatedAtDesc(ConversionJob.JobStatus status);
+    
+    List<ConversionJob> findTop20ByOrderByCreatedAtDesc();
+    
     List<ConversionJob> findAllByOrderByCreatedAtDesc();
     
-    /**
-     * 상태별 작업 조회
-     */
-    List<ConversionJob> findByStatusOrderByCreatedAtDesc(JobStatus status);
+    Optional<ConversionJob> findByJobId(String jobId);
     
-    /**
-     * 특정 상태의 작업 개수
-     */
-    long countByStatus(JobStatus status);
+    long countByStatus(ConversionJob.JobStatus status);
 }

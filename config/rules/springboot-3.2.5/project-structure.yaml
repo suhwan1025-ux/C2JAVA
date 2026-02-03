@@ -1,0 +1,138 @@
+# C to Spring Boot 3.2.5 프로젝트 구조
+# 버전: 1.0 | 최종수정: 2026-02-02
+
+version: "1.0"
+target: "Spring Boot 3.2.5 / Java 21 / Gradle"
+
+# ========== 파일 생성 규칙 ==========
+# 원본 C 파일 → 생성되는 Java 파일
+
+file_mapping:
+  # Pro*C (.pc) → Repository + Entity + DTO
+  ".pc":
+    - "{Name}Repository.java"    # repository/ - SQL 쿼리
+    - "{Name}.java"              # domain/ - JPA Entity
+    - "{Name}Dto.java"           # dto/ - DTO
+  
+  # C 소스 (.c) → Service + Controller
+  ".c":
+    - "{Name}Service.java"       # service/ - 인터페이스
+    - "{Name}ServiceImpl.java"   # service/impl/ - 구현체
+    - "{Name}Controller.java"    # api/ - REST API (필요시)
+  
+  # C 헤더 (.h) → Entity + DTO + Enum + Constants
+  ".h":
+    - "{Name}.java"              # domain/ - struct → Entity
+    - "{Name}Dto.java"           # dto/ - struct → DTO
+    - "{Name}.java"              # domain/enums/ - enum
+    - "{Name}Constants.java"     # common/ - #define 상수
+
+# ========== 디렉토리 구조 ==========
+directories:
+  src/main/java/{package}/:
+    - api/              # REST Controller
+    - service/          # Service 인터페이스
+    - service/impl/     # Service 구현체
+    - repository/       # JPA Repository
+    - domain/           # Entity
+    - domain/enums/     # Enum
+    - dto/              # DTO
+    - dto/request/      # Request DTO
+    - dto/response/     # Response DTO
+    - config/           # 설정
+    - common/           # Constants, Utils
+    - exception/        # 예외
+    - mapper/           # MapStruct
+
+# ========== 파일 헤더 주석 (필수) ==========
+file_header: |
+  /**
+   * [C2JAVA] 자동 변환 파일
+   * @source   {원본파일}
+   * @created  {변환일시}
+   * @rule     springboot-3.2.5
+   * 
+   * [C2JAVA-REVIEW] 태그 = 수동 검토 필요
+   */
+
+# ========== 클래스 템플릿 ==========
+templates:
+  # Entity (struct 변환)
+  entity: |
+    @Entity
+    @Table(name = "{table}")
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public class {Name} {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+        
+        // [C2JAVA] 원본 필드: {c_type} {c_name}
+        private {java_type} {javaName};
+    }
+  
+  # Repository (Pro*C SQL 변환)
+  repository: |
+    @Repository
+    public interface {Name}Repository extends JpaRepository<{Name}, Long> {
+        /**
+         * [C2JAVA-SQL] 원본: {source}:{line}
+         * SQL 100% 원본 보존
+         */
+        @Query(value = "{sql}", nativeQuery = true)
+        {return} {method}(@Param("{param}") {type} {param});
+    }
+  
+  # Service 인터페이스
+  service: |
+    public interface {Name}Service {
+        // [C2JAVA] 원본: {c_function} ({source}:{line})
+        {return} {method}({params});
+    }
+  
+  # Service 구현체
+  serviceImpl: |
+    @Service
+    @RequiredArgsConstructor
+    @Transactional(readOnly = true)
+    public class {Name}ServiceImpl implements {Name}Service {
+        private final {Name}Repository repository;
+        
+        @Override
+        public {return} {method}({params}) {
+            // [C2JAVA] 원본 로직
+        }
+    }
+  
+  # Controller
+  controller: |
+    @RestController
+    @RequestMapping("/api/v1/{resource}")
+    @RequiredArgsConstructor
+    public class {Name}Controller {
+        private final {Name}Service service;
+    }
+
+# ========== 매핑 파일 (추적성) ==========
+# 생성 위치: 프로젝트 루트/conversion-mapping.json
+mapping_file:
+  format: |
+    {
+      "version": "1.0",
+      "date": "2026-02-02",
+      "mappings": [
+        {
+          "source": "src/employee_dao.pc:45",
+          "target": "EmployeeRepository.java:30",
+          "function": "get_employee → findById"
+        }
+      ]
+    }
+
+# ========== 의존성 ==========
+dependencies:
+  - spring-boot-starter-web
+  - spring-boot-starter-data-jpa
+  - spring-boot-starter-validation
+  - postgresql (runtime)
+  - lombok (compileOnly)
+  - mapstruct:1.5.5.Final

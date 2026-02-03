@@ -42,10 +42,18 @@ server:
     context-path: /api
 
 # ============================================
+# 환경변수 파일 경로 설정
+# ============================================
+env:
+  file:
+    path: ${ENV_FILE_PATH:config/env/.env.internal}
+
+# ============================================
 # LLM 설정
 # ============================================
 llm:
   active-provider: ${ACTIVE_LLM_PROVIDER:qwen3}
+  timeout: ${LLM_TIMEOUT:180}
   
   qwen3:
     api-url: ${QWEN3_API_URL:http://localhost:8080/v1}
@@ -74,6 +82,27 @@ cli:
     enabled: ${FABRIC_ENABLED:true}
     executable-path: /usr/local/bin/fabric
     default-pattern: ${FABRIC_DEFAULT_PATTERN:analyze_code}
+    
+  cursor:
+    enabled: ${CURSOR_CLI_ENABLED:false}
+    path: ${CURSOR_CLI_PATH:~/.local/bin/agent}
+    model: ${CURSOR_CLI_MODEL:gpt-5}
+    
+  openai:
+    enabled: ${OPENAI_CLI_ENABLED:false}
+
+# ============================================
+# 파일 서버 설정 (별도 가상화 서버)
+# ============================================
+file-server:
+  enabled: ${FILE_SERVER_ENABLED:false}
+  url: ${FILE_SERVER_URL:}
+  upload-endpoint: ${FILE_SERVER_UPLOAD_ENDPOINT:/api/files/upload}
+  download-endpoint: ${FILE_SERVER_DOWNLOAD_ENDPOINT:/api/files/download}
+  auth-token: ${FILE_SERVER_AUTH_TOKEN:}
+  connect-timeout: ${FILE_SERVER_CONNECT_TIMEOUT:30}
+  read-timeout: ${FILE_SERVER_READ_TIMEOUT:60}
+  local-path: ${CONVERSION_WORKSPACE:/app/workspace}
 
 # ============================================
 # 변환 설정
@@ -81,7 +110,7 @@ cli:
 conversion:
   workspace-dir: ${CONVERSION_WORKSPACE:/app/workspace}
   output-dir: ${OUTPUT_DIR:/app/output}
-  rules-dir: ${RULES_DIR:/app/config/rules}
+  rules-dir: ${RULES_DIR:/Users/dongsoo/Desktop/C2JAVA/config/rules}
   library-path: ${LIBRARY_PATH:/app/libs}
   
   compile:
@@ -90,6 +119,16 @@ conversion:
     
   runtime:
     timeout-seconds: 60
+
+# ============================================
+# Airflow 설정
+# ============================================
+airflow:
+  url: ${AIRFLOW_URL:http://localhost:8081}
+  username: ${AIRFLOW_USERNAME:admin}
+  password: ${AIRFLOW_PASSWORD:admin}
+  dags-dir: ${AIRFLOW_DAGS_DIR:/app/airflow/dags}
+  enabled: ${AIRFLOW_ENABLED:false}
 
 # ============================================
 # 보안 설정

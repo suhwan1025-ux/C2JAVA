@@ -1,0 +1,135 @@
+# C to Spring Boot 3.2.5 변환 규칙
+# 버전: 1.0 | 최종수정: 2026-02-02
+
+# ========== 핵심 원칙 (필독) ==========
+#
+# 1. 일관성: 동일한 C 코드 → 항상 동일한 Java 코드
+# 2. 정확성: 확실한 것만 변환, 불확실하면 [C2JAVA-REVIEW] 태그 후 원본 보존
+# 3. SQL 보존: SQL 내용 100% 원본 유지, 바인드 변수명만 camelCase로
+# 4. 추적성: conversion-mapping.json에 원본↔생성 파일 매핑 기록
+# 5. 주석: 모든 변환에 원본 정보 주석 필수
+
+version: "1.0"
+target: "Spring Boot 3.2.5 / Java 21"
+
+# ========== 주석 태그 ==========
+tags:
+  "[C2JAVA]": "일반 변환"
+  "[C2JAVA-SQL]": "SQL 원본 보존"
+  "[C2JAVA-REVIEW]": "수동 검토 필요"
+  "[C2JAVA-PRESERVE]": "변환 불가, 원본 보존"
+
+# ========== 타입 매핑 ==========
+types:
+  # 정수형
+  int: int
+  short: short
+  long: long           # [REVIEW] C long은 플랫폼 의존적
+  "long long": long
+  "unsigned int": long # [REVIEW] 범위 확인 필요
+  "unsigned long": long
+  "unsigned char": int # 0-255 범위
+  
+  # 실수형
+  float: float
+  double: double
+  "long double": BigDecimal  # import java.math.BigDecimal
+  
+  # 기타
+  char: char
+  void: void
+  bool: boolean
+  size_t: long
+  
+  # 포인터
+  "char*": String
+  "const char*": String
+  "int*": "int[]"      # [REVIEW] 배열/출력 매개변수 구분
+  "void*": Object      # [REVIEW] 실제 타입 확인
+  "FILE*": "[REVIEW]"  # File/InputStream/OutputStream 중 선택
+
+  # 구조체 → @Data @Builder 클래스
+  struct: |
+    @Data @Builder @NoArgsConstructor @AllArgsConstructor
+    public class {Name} { ... }
+
+# ========== 함수 매핑 ==========
+functions:
+  # 입출력
+  printf: System.out.printf
+  sprintf: String.format
+  fprintf: "[REVIEW] 출력 대상 확인"
+  scanf: "[REVIEW] Scanner 사용"
+  fclose: .close()     # try-with-resources 권장
+  
+  # 문자열
+  strlen: .length()
+  strcpy: "dest = src"
+  strcmp: ".equals() 또는 .compareTo()"
+  strcat: "str1 + str2"
+  strchr: .indexOf()
+  strstr: ".contains() 또는 .indexOf()"
+  
+  # 메모리
+  malloc: new          # GC가 관리
+  calloc: new          # Java 배열은 자동 0 초기화
+  realloc: Arrays.copyOf()
+  free: "// GC 처리"   # 삭제 가능
+  memcpy: System.arraycopy()
+  memset: Arrays.fill()
+  
+  # 수학
+  abs: Math.abs()
+  sqrt: Math.sqrt()
+  pow: Math.pow()
+  ceil: Math.ceil()
+  floor: Math.floor()
+  round: Math.round()
+  
+  # 변환
+  atoi: Integer.parseInt()
+  atol: Long.parseLong()
+  atof: Double.parseDouble()
+
+# ========== SQL 변환 ==========
+sql:
+  principle: "SQL 내용 절대 수정 금지"
+  
+  rules:
+    - "SELECT/INSERT/UPDATE/DELETE 문 100% 원본 유지"
+    - "바인드 변수만 :v_name → :name (camelCase)"
+    - "SQL 주석도 그대로 보존"
+    - "테이블명, 컬럼명, 조건절 변경 금지"
+  
+  # Pro*C EXEC SQL → @Query
+  example_input: |
+    EXEC SQL SELECT emp_name FROM employees WHERE id = :v_id;
+  example_output: |
+    @Query(value = "SELECT emp_name FROM employees WHERE id = :id", nativeQuery = true)
+    String findEmpName(@Param("id") Long id);
+
+# ========== 변환 불가 (원본 보존) ==========
+unconvertible:
+  - asm / __asm__     # 인라인 어셈블리
+  - "struct x : 4"    # 비트 필드
+  - __VA_ARGS__       # 가변 인자 매크로
+  - "#ifdef _WIN32"   # 플랫폼 특화
+  - "goto label"      # goto 문
+  - "**ptr"           # 이중 포인터
+  
+  action: |
+    // [C2JAVA-PRESERVE] 변환 불가 - 원본 보존
+    /* 원본 코드:
+    {original}
+    */
+
+# ========== 변수명 변환 ==========
+naming:
+  class: PascalCase
+  method: camelCase
+  variable: camelCase
+  constant: UPPER_SNAKE_CASE
+  
+  # 접두사 제거
+  remove_prefix: ["v_", "p_", "l_", "g_", "m_", "s_"]
+  # 예: v_emp_name → empName

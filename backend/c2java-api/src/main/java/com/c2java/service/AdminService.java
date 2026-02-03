@@ -6,6 +6,7 @@ import com.c2java.domain.ConversionJob.JobStatus;
 import com.c2java.dto.LlmConfigDto;
 import com.c2java.dto.SystemStatusDto;
 import com.c2java.repository.ConversionJobRepository;
+import com.c2java.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,9 @@ public class AdminService {
     private final LlmProperties llmProperties;
     private final CliProperties cliProperties;
     private final ConversionJobRepository jobRepository;
+    private final UserRepository userRepository;
+    private final EnvSyncService envSyncService;
+    private final FileStorageService fileStorageService;
 
     /**
      * 시스템 상태 조회
@@ -159,6 +163,89 @@ public class AdminService {
         stats.put("successRate", String.format("%.2f%%", successRate));
         
         return stats;
+    }
+
+    /**
+     * 사용자 통계 조회
+     */
+    public Map<String, Object> getUserStats() {
+        Map<String, Object> stats = new HashMap<>();
+        
+        stats.put("totalUsers", userRepository.count());
+        stats.put("activeUsers", userRepository.countByIsActiveTrue());
+        
+        // 최근 로그인 사용자 목록
+        var recentUsers = userRepository.findTop10ByOrderByLastLoginAtDesc().stream()
+                .map(user -> {
+                    Map<String, Object> userMap = new HashMap<>();
+                    userMap.put("username", user.getUsername());
+                    userMap.put("displayName", user.getDisplayName());
+                    userMap.put("role", user.getRole().name());
+                    userMap.put("lastLoginAt", user.getLastLoginAt());
+                    return userMap;
+                })
+                .toList();
+        stats.put("recentUsers", recentUsers);
+        
+        return stats;
+    }
+
+    /**
+     * 환경변수 파일에서 LLM 설정 읽기
+     */
+    public Map<String, String> getLlmEnvVariables() {
+        return envSyncService.loadLlmEnvVariables();
+    }
+
+    /**
+     * 환경변수 파일에서 CLI 설정 읽기
+     */
+    public Map<String, String> getCliEnvVariables() {
+        return envSyncService.loadCliEnvVariables();
+    }
+
+    /**
+     * LLM 설정을 환경변수 파일에 저장
+     */
+    public void saveLlmEnvVariables(Map<String, String> envVars) {
+        envSyncService.saveEnvVariables(envVars);
+        log.info("LLM environment variables saved");
+    }
+
+    /**
+     * CLI 설정을 환경변수 파일에 저장
+     */
+    public void saveCliEnvVariables(Map<String, String> envVars) {
+        envSyncService.saveEnvVariables(envVars);
+        log.info("CLI environment variables saved");
+    }
+
+    /**
+     * 환경변수 파일 경로 및 존재 여부
+     */
+    public Map<String, Object> getEnvFileInfo() {
+        Map<String, Object> info = new HashMap<>();
+        info.put("path", envSyncService.getEnvFilePath());
+        info.put("exists", envSyncService.envFileExists());
+        return info;
+    }
+
+    /**
+     * 파일 서버 상태 조회
+     */
+    public Map<String, Object> getFileServerStatus() {
+        return fileStorageService.getServerStatus();
+    }
+
+    /**
+     * 파일 서버 연결 테스트
+     */
+    public Map<String, Object> testFileServerConnection() {
+        boolean connected = fileStorageService.testConnection();
+        Map<String, Object> result = new HashMap<>();
+        result.put("connected", connected);
+        result.put("message", connected ? "파일 서버 연결 성공" : "파일 서버 연결 실패");
+        return result;
     }
 
     /**

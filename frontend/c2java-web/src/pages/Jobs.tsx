@@ -5,7 +5,8 @@ import {
   XCircle, 
   Clock, 
   Loader,
-  Eye
+  Eye,
+  Activity
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -56,13 +57,13 @@ export default function Jobs() {
                 상태
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                LLM
+                진행률
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                대상 언어
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 생성일
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                재시도
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 액션
@@ -90,23 +91,48 @@ export default function Jobs() {
                       {status.label}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {job.llmProvider || 'qwen3'}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            job.status === 'FAILED' ? 'bg-red-500' : 'bg-indigo-600'
+                          }`}
+                          style={{ width: `${job.progress || 0}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-600">{job.progress || 0}%</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(job.createdAt).toLocaleString('ko-KR')}
+                    {job.targetLanguage || 'springboot-3.2.5'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {job.retryCount}
+                    {new Date(job.createdAt).toLocaleString('ko-KR', { 
+                      year: '2-digit',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Link
-                      to={`/jobs/${job.id}`}
-                      className="text-indigo-600 hover:text-indigo-900 inline-flex items-center"
-                    >
-                      <Eye className="h-4 w-4 mr-1" />
-                      상세
-                    </Link>
+                    <div className="flex justify-end gap-2">
+                      <Link
+                        to={`/jobs/${job.id}/monitor`}
+                        className="text-indigo-600 hover:text-indigo-900 inline-flex items-center"
+                      >
+                        <Activity className="h-4 w-4 mr-1" />
+                        모니터링
+                      </Link>
+                      <Link
+                        to={`/jobs/${job.id}`}
+                        className="text-gray-600 hover:text-gray-900 inline-flex items-center"
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        상세
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               );
