@@ -7,6 +7,14 @@ CREATE DATABASE airflow;
 CREATE USER airflow_user WITH ENCRYPTED PASSWORD 'airflow_password';
 GRANT ALL PRIVILEGES ON DATABASE airflow TO airflow_user;
 
+-- Airflow 데이터베이스에 연결하여 스키마 권한 부여
+\c airflow;
+GRANT ALL ON SCHEMA public TO airflow_user;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO airflow_user;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO airflow_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO airflow_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO airflow_user;
+
 -- C2JAVA 메인 데이터베이스 스키마 생성
 \c c2java;
 
