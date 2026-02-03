@@ -80,9 +80,11 @@ public class CFileAnalyzerService {
      * 파일 타입 결정
      */
     private String determineFileType(String fileName) {
-        if (fileName.endsWith(".pc")) return "pro_c";
-        if (fileName.endsWith(".h")) return "c_header";
-        if (fileName.endsWith(".c")) return "c_source";
+        String lowerName = fileName.toLowerCase();
+        if (lowerName.endsWith(".pc")) return "pro_c";
+        if (lowerName.endsWith(".h") || lowerName.endsWith(".hpp")) return "c_header";
+        if (lowerName.endsWith(".c")) return "c_source";
+        if (lowerName.endsWith(".cpp") || lowerName.endsWith(".cc") || lowerName.endsWith(".cxx")) return "cpp_source";
         return "unknown";
     }
 

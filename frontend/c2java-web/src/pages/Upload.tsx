@@ -59,24 +59,46 @@ export default function Upload() {
   });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const cFiles = acceptedFiles.filter(
-      (f) => f.name.endsWith('.c') || f.name.endsWith('.h')
+    // C, C++, Pro*C 파일 필터링
+    const validExtensions = ['.c', '.h', '.pc', '.cpp', '.cc', '.cxx', '.hpp'];
+    const cFiles = acceptedFiles.filter((f) => 
+      validExtensions.some(ext => f.name.toLowerCase().endsWith(ext))
     );
+    
     setFiles((prev) => [...prev, ...cFiles]);
     if (!jobName && cFiles.length > 0) {
-      setJobName(cFiles[0].name.replace(/\.[ch]$/, ''));
+      setJobName(cFiles[0].name.replace(/\.(c|h|pc|cpp|cc|cxx|hpp)$/, ''));
     }
   }, [jobName]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'text/x-c': ['.c', '.h'],
+      'text/x-c': ['.c', '.h', '.pc', '.cpp', '.cc', '.cxx', '.hpp'],
     },
+    // 폴더 업로드 지원 (웹 표준 제한으로 인한 대안)
+    // 사용자가 폴더 내 모든 파일을 선택하여 드래그&드롭 가능
   });
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // 폴더 선택 핸들러
+  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    const validExtensions = ['.c', '.h', '.pc', '.cpp', '.cc', '.cxx', '.hpp'];
+    const cFiles = selectedFiles.filter((f) => 
+      validExtensions.some(ext => f.name.toLowerCase().endsWith(ext))
+    );
+    
+    setFiles((prev) => [...prev, ...cFiles]);
+    if (!jobName && cFiles.length > 0) {
+      // 폴더 이름을 job name으로 설정
+      const folderPath = cFiles[0].webkitRelativePath || cFiles[0].name;
+      const folderName = folderPath.split('/')[0];
+      setJobName(folderName);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -88,9 +110,12 @@ export default function Upload() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">C 파일 업로드</h1>
+        <h1 className="text-2xl font-bold text-gray-900">C/C++ 파일 업로드</h1>
         <p className="text-sm text-gray-500 mt-1">
-          변환할 C 소스 파일을 업로드하세요. (.c, .h 파일 지원)
+          변환할 소스 파일을 업로드하세요. (.c, .h, .pc, .cpp, .cc, .cxx, .hpp 지원)
+        </p>
+        <p className="text-xs text-blue-600 mt-1">
+          💡 Tip: 폴더 내 모든 파일을 선택(Ctrl+A/Cmd+A)하여 한번에 업로드할 수 있습니다
         </p>
       </div>
 
@@ -113,9 +138,39 @@ export default function Upload() {
               <p className="text-gray-600 font-medium">
                 클릭하거나 파일을 드래그하여 업로드
               </p>
-              <p className="text-sm text-gray-400 mt-1">.c, .h 파일만 지원됩니다</p>
+              <p className="text-sm text-gray-400 mt-1">
+                .c, .h, .pc, .cpp, .cc, .cxx, .hpp 파일 지원
+              </p>
+              <p className="text-xs text-green-600 mt-2">
+                📂 여러 파일을 한번에 선택 가능
+              </p>
             </>
           )}
+        </div>
+
+        {/* 폴더 선택 버튼 */}
+        <div className="flex items-center justify-center gap-4">
+          <div className="flex-1 border-t border-gray-300"></div>
+          <span className="text-sm text-gray-500">또는</span>
+          <div className="flex-1 border-t border-gray-300"></div>
+        </div>
+        
+        <div className="flex justify-center">
+          <label className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            <span className="font-medium">폴더 선택</span>
+            <input
+              type="file"
+              className="hidden"
+              /* @ts-ignore - webkitdirectory is not in TypeScript types */
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={handleFolderSelect}
+            />
+          </label>
         </div>
 
         {/* 업로드된 파일 목록 */}
