@@ -25,11 +25,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# AIDER 설치
-RUN pip install --no-cache-dir aider-chat
-
-# Fabric 설치
-RUN pip install --no-cache-dir fabric-ai
+# Fabric 설치 (Binary 직접 다운로드 - 아키텍처 자동 감지)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        FABRIC_ARCH="amd64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        FABRIC_ARCH="arm64"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    echo "Downloading Fabric for Linux ($FABRIC_ARCH)..." && \
+    curl -L "https://github.com/danielmiessler/fabric/releases/latest/download/fabric-linux-${FABRIC_ARCH}" -o /usr/local/bin/fabric && \
+    chmod +x /usr/local/bin/fabric
 
 # 스크립트 복사
 COPY . .

@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,6 +25,7 @@ import java.util.Map;
 public class AdminController {
 
     private final AdminService adminService;
+    private final com.c2java.service.LocalServerService localServerService;
 
     /**
      * 시스템 상태 조회
@@ -137,8 +139,143 @@ public class AdminController {
     @Operation(summary = "환경변수 파일 CLI 설정 저장", description = "환경변수 파일에 CLI 관련 설정을 저장합니다.")
     public ResponseEntity<Map<String, Object>> saveCliEnvVariables(
             @RequestBody Map<String, String> envVars) {
+        log.info("Received CLI env variables to save: {}", envVars);
+        log.info("WORKSPACE_PATH value: {}", envVars.get("WORKSPACE_PATH"));
         adminService.saveCliEnvVariables(envVars);
         return ResponseEntity.ok(Map.of("success", true, "message", "CLI 환경변수가 저장되었습니다."));
+    }
+
+    /**
+     * 환경변수 파일에서 워커 서버 설정 읽기
+     */
+    @GetMapping("/env/worker")
+    @Operation(summary = "환경변수 파일 워커 서버 설정 읽기", description = "환경변수 파일에서 워커 서버 관련 설정을 읽어옵니다.")
+    public ResponseEntity<Map<String, String>> getWorkerServerEnvVariables() {
+        return ResponseEntity.ok(adminService.getWorkerServerEnvVariables());
+    }
+
+    /**
+     * 환경변수 파일에 워커 서버 설정 저장
+     */
+    @PutMapping("/env/worker")
+    @Operation(summary = "환경변수 파일 워커 서버 설정 저장", description = "환경변수 파일에 워커 서버 관련 설정을 저장합니다.")
+    public ResponseEntity<Map<String, Object>> saveWorkerServerEnvVariables(
+            @RequestBody Map<String, String> envVars) {
+        adminService.saveWorkerServerEnvVariables(envVars);
+        return ResponseEntity.ok(Map.of("success", true, "message", "워커 서버 환경변수가 저장되었습니다."));
+    }
+
+    /**
+     * CLI 도구 연결 테스트
+     */
+    @PostMapping("/cli/test")
+    @Operation(summary = "CLI 연결 테스트", description = "CLI 도구 연결 설정을 테스트합니다.")
+    public ResponseEntity<Map<String, Object>> testCliConnection(
+            @RequestBody Map<String, String> request) {
+        String tool = request.get("tool");
+        String token = request.get("token");
+        String apiKey = request.get("apiKey");
+        
+        return ResponseEntity.ok(adminService.testCliConnection(tool, token, apiKey));
+    }
+
+    /**
+     * 워크스페이스 디렉토리 열기
+     */
+    @PostMapping("/workspace/open")
+    @Operation(summary = "워크스페이스 열기", description = "로컬 워크스페이스 디렉토리를 엽니다.")
+    public ResponseEntity<Map<String, Object>> openWorkspace(@RequestBody Map<String, String> request) {
+        String path = request.get("path");
+        boolean success = adminService.openWorkspaceDirectory(path);
+        return ResponseEntity.ok(Map.of(
+            "success", success,
+            "message", success ? "워크스페이스를 열었습니다." : "워크스페이스를 열 수 없습니다."
+        ));
+    }
+
+    // ========== 로컬 서버 관리 API ==========
+
+    /**
+     * 모든 서비스 상태 조회
+     */
+    @GetMapping("/local-servers/status")
+    @Operation(summary = "로컬 서버 상태", description = "모든 로컬 서비스의 상태를 조회합니다.")
+    public ResponseEntity<Map<String, Map<String, Object>>> getAllServicesStatus() {
+        return ResponseEntity.ok(localServerService.getAllServicesStatus());
+    }
+
+    /**
+     * 특정 서비스 상태 조회
+     */
+    @GetMapping("/local-servers/{serviceName}/status")
+    @Operation(summary = "서비스 상태 조회", description = "특정 서비스의 상태를 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getServiceStatus(@PathVariable String serviceName) {
+        return ResponseEntity.ok(localServerService.getServiceStatus(serviceName));
+    }
+
+    /**
+     * 서비스 시작
+     */
+    @PostMapping("/local-servers/{serviceName}/start")
+    @Operation(summary = "서비스 시작", description = "로컬 서비스를 시작합니다.")
+    public ResponseEntity<Map<String, Object>> startService(@PathVariable String serviceName) {
+        Map<String, Object> result;
+        
+        switch (serviceName.toLowerCase()) {
+            case "airflow":
+                result = localServerService.startAirflow();
+                break;
+            case "cli-service":
+                result = localServerService.startCliService();
+                break;
+            default:
+                result = Map.of("success", false, "message", "Unknown service: " + serviceName);
+        }
+        
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 서비스 중지
+     */
+    @PostMapping("/local-servers/{serviceName}/stop")
+    @Operation(summary = "서비스 중지", description = "로컬 서비스를 중지합니다.")
+    public ResponseEntity<Map<String, Object>> stopService(@PathVariable String serviceName) {
+        Map<String, Object> result;
+        
+        switch (serviceName.toLowerCase()) {
+            case "airflow":
+                result = localServerService.stopAirflow();
+                break;
+            case "cli-service":
+                result = localServerService.stopCliService();
+                break;
+            default:
+                result = Map.of("success", false, "message", "Unknown service: " + serviceName);
+        }
+        
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 서비스 로그 조회
+     */
+    @GetMapping("/local-servers/{serviceName}/logs")
+    @Operation(summary = "서비스 로그", description = "서비스 로그를 조회합니다.")
+    public ResponseEntity<List<String>> getServiceLogs(
+            @PathVariable String serviceName,
+            @RequestParam(required = false) Integer lines) {
+        return ResponseEntity.ok(localServerService.getServiceLogs(serviceName, lines));
+    }
+
+    /**
+     * 서비스 로그 초기화
+     */
+    @DeleteMapping("/local-servers/{serviceName}/logs")
+    @Operation(summary = "로그 초기화", description = "서비스 로그를 초기화합니다.")
+    public ResponseEntity<Map<String, Object>> clearServiceLogs(@PathVariable String serviceName) {
+        localServerService.clearLogs(serviceName);
+        return ResponseEntity.ok(Map.of("success", true, "message", "로그가 초기화되었습니다."));
     }
 
     // ========== 사용자 통계 API ==========
@@ -150,6 +287,17 @@ public class AdminController {
     @Operation(summary = "사용자 통계", description = "사용자 현황 통계를 조회합니다.")
     public ResponseEntity<Map<String, Object>> getUserStats() {
         return ResponseEntity.ok(adminService.getUserStats());
+    }
+
+    // ========== 워커 서버 API ==========
+
+    /**
+     * 워커 서버 상태 조회
+     */
+    @GetMapping("/worker-server/status")
+    @Operation(summary = "워커 서버 상태", description = "워커 서버(폐쇄망) CLI 서비스 상태를 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getWorkerServerStatus() {
+        return ResponseEntity.ok(adminService.getWorkerServerStatus());
     }
 
     // ========== 파일 서버 API ==========

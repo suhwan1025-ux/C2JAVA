@@ -9,5 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface FileAnalysisRepository extends JpaRepository<FileAnalysis, UUID> {
-    List<FileAnalysis> findByJobId(String jobId);
+    List<FileAnalysis> findByJobId(UUID jobId);
 }

@@ -29,28 +29,55 @@ import java.util.UUID;
 public class FileStorageService {
 
     private final FileServerProperties fileServerProperties;
+    private final EnvSyncService envSyncService;
 
     /**
      * 파일 업로드 (자동으로 로컬/원격 선택)
+     * @param file 업로드할 파일
+     * @param jobId 작업 ID
+     * @param userId 사용자 ID
+     * @param projectName 프로젝트명
      * @return 저장된 파일 경로 또는 URL
      */
-    public String uploadFile(MultipartFile file, String jobId) throws IOException {
+    public String uploadFile(MultipartFile file, String jobId, String userId, String projectName) throws IOException {
         if (fileServerProperties.isEnabled() && !fileServerProperties.getUrl().isEmpty()) {
             return uploadToRemoteServer(file, jobId);
         } else {
-            return saveToLocal(file, jobId);
+            return saveToLocal(file, jobId, userId, projectName);
         }
     }
 
     /**
      * 파일 업로드 (바이트 배열)
+     * @param content 파일 내용
+     * @param fileName 파일명
+     * @param jobId 작업 ID
+     * @param userId 사용자 ID
+     * @param projectName 프로젝트명
+     * @return 저장된 파일 경로 또는 URL
      */
-    public String uploadFile(byte[] content, String fileName, String jobId) throws IOException {
+    public String uploadFile(byte[] content, String fileName, String jobId, String userId, String projectName) throws IOException {
         if (fileServerProperties.isEnabled() && !fileServerProperties.getUrl().isEmpty()) {
             return uploadToRemoteServer(content, fileName, jobId);
         } else {
-            return saveToLocal(content, fileName, jobId);
+            return saveToLocal(content, fileName, jobId, userId, projectName);
         }
+    }
+    
+    /**
+     * 하위 호환성을 위한 메서드 (userId, projectName 없이)
+     */
+    @Deprecated
+    public String uploadFile(MultipartFile file, String jobId) throws IOException {
+        return uploadFile(file, jobId, "unknown", "default");
+    }
+    
+    /**
+     * 하위 호환성을 위한 메서드 (userId, projectName 없이)
+     */
+    @Deprecated
+    public String uploadFile(byte[] content, String fileName, String jobId) throws IOException {
+        return uploadFile(content, fileName, jobId, "unknown", "default");
     }
 
     /**
@@ -128,23 +155,63 @@ public class FileStorageService {
     /**
      * 로컬 파일 시스템에 저장
      */
+    private String saveToLocal(MultipartFile file, String jobId, String userId, String projectName) throws IOException {
+        return saveToLocal(file.getBytes(), file.getOriginalFilename(), jobId, userId, projectName);
+    }
+    
+    /**
+     * 로컬 파일 시스템에 저장 (하위 호환성)
+     */
+    @Deprecated
     private String saveToLocal(MultipartFile file, String jobId) throws IOException {
-        return saveToLocal(file.getBytes(), file.getOriginalFilename(), jobId);
+        return saveToLocal(file.getBytes(), file.getOriginalFilename(), jobId, "unknown", "default");
     }
 
     /**
      * 로컬 파일 시스템에 저장 (바이트 배열)
      */
-    private String saveToLocal(byte[] content, String fileName, String jobId) throws IOException {
-        String localPath = fileServerProperties.getLocalPath();
-        Path uploadPath = Paths.get(localPath, "uploads", jobId);
+    private String saveToLocal(byte[] content, String fileName, String jobId, String userId, String projectName) throws IOException {
+        // 외부망 환경: WORKSPACE_PATH 사용
+        Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+        String workspacePath = cliConfig.get("WORKSPACE_PATH");
+        
+        String basePath;
+        if (workspacePath != null && !workspacePath.isEmpty()) {
+            // 외부망: 설정된 워크스페이스 경로 사용
+            // 경로 구조: {WORKSPACE_PATH}/{userId}/{projectName}/
+            basePath = workspacePath;
+            log.info("Using configured workspace path: {}", basePath);
+        } else {
+            // 폐쇄망/기본값: 로컬 저장 경로 사용
+            // 경로 구조: {LOCAL_PATH}/uploads/{jobId}/
+            basePath = fileServerProperties.getLocalPath();
+            log.info("Using default local path: {}", basePath);
+        }
+        
+        Path uploadPath;
+        if (workspacePath != null && !workspacePath.isEmpty()) {
+            // 외부망: {WORKSPACE_PATH}/{userId}/{projectName}/
+            uploadPath = Paths.get(basePath, userId, projectName);
+        } else {
+            // 폐쇄망: {LOCAL_PATH}/uploads/{jobId}/
+            uploadPath = Paths.get(basePath, "uploads", jobId);
+        }
+        
         Files.createDirectories(uploadPath);
 
         Path filePath = uploadPath.resolve(fileName);
         Files.write(filePath, content);
 
-        log.info("File saved locally: {}", filePath);
+        log.info("File saved to: {}", filePath);
         return filePath.toString();
+    }
+    
+    /**
+     * 로컬 파일 시스템에 저장 (하위 호환성)
+     */
+    @Deprecated
+    private String saveToLocal(byte[] content, String fileName, String jobId) throws IOException {
+        return saveToLocal(content, fileName, jobId, "unknown", "default");
     }
 
     /**

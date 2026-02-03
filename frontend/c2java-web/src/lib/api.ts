@@ -80,6 +80,11 @@ export const api = {
     return response.data;
   },
 
+  cancelJob: async (jobId: string) => {
+    const response = await axiosInstance.delete(`/v1/conversions/${jobId}`);
+    return response.data;
+  },
+
   // Pipeline APIs
   getDetailedJobStatus: async (jobId: string) => {
     const response = await axiosInstance.get(`/v1/conversions/${jobId}/status/detailed`);
@@ -168,9 +173,68 @@ export const api = {
     return response.data;
   },
 
+  // 워커 서버 환경변수 API
+  getWorkerServerEnvVariables: async () => {
+    const response = await axiosInstance.get('/v1/admin/env/worker');
+    return response.data;
+  },
+
+  saveWorkerServerEnvVariables: async (envVars: Record<string, string>) => {
+    const response = await axiosInstance.put('/v1/admin/env/worker', envVars);
+    return response.data;
+  },
+
+  testCliConnection: async (data: { tool: string; token?: string; apiKey?: string }) => {
+    const response = await axiosInstance.post('/v1/admin/cli/test', data);
+    return response.data;
+  },
+
+  openWorkspace: async (path: string) => {
+    const response = await axiosInstance.post('/v1/admin/workspace/open', { path });
+    return response.data;
+  },
+
+  // 로컬 서버 관리 API
+  getAllServicesStatus: async () => {
+    const response = await axiosInstance.get('/v1/admin/local-servers/status');
+    return response.data;
+  },
+
+  getServiceStatus: async (serviceName: string) => {
+    const response = await axiosInstance.get(`/v1/admin/local-servers/${serviceName}/status`);
+    return response.data;
+  },
+
+  startService: async (serviceName: string) => {
+    const response = await axiosInstance.post(`/v1/admin/local-servers/${serviceName}/start`);
+    return response.data;
+  },
+
+  stopService: async (serviceName: string) => {
+    const response = await axiosInstance.post(`/v1/admin/local-servers/${serviceName}/stop`);
+    return response.data;
+  },
+
+  getServiceLogs: async (serviceName: string, lines?: number) => {
+    const params = lines ? { lines } : {};
+    const response = await axiosInstance.get(`/v1/admin/local-servers/${serviceName}/logs`, { params });
+    return response.data;
+  },
+
+  clearServiceLogs: async (serviceName: string) => {
+    const response = await axiosInstance.delete(`/v1/admin/local-servers/${serviceName}/logs`);
+    return response.data;
+  },
+
   // 사용자 통계 API
   getUserStats: async () => {
     const response = await axiosInstance.get('/v1/admin/users/stats');
+    return response.data;
+  },
+
+  // 워커 서버 API (폐쇄망)
+  getWorkerServerStatus: async () => {
+    const response = await axiosInstance.get('/v1/admin/worker-server/status');
     return response.data;
   },
 

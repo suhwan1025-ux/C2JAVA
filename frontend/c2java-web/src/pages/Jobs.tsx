@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { 
   CheckCircle, 
@@ -6,7 +6,8 @@ import {
   Clock, 
   Loader,
   Eye,
-  Activity
+  Activity,
+  StopCircle
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -19,14 +20,30 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
   REVIEWING: { label: '리뷰 중', color: 'bg-orange-100 text-orange-800', icon: Loader },
   COMPLETED: { label: '완료', color: 'bg-green-100 text-green-800', icon: CheckCircle },
   FAILED: { label: '실패', color: 'bg-red-100 text-red-800', icon: XCircle },
+  CANCELLED: { label: '취소됨', color: 'bg-yellow-100 text-yellow-800', icon: XCircle },
 };
 
 export default function Jobs() {
+  const queryClient = useQueryClient();
+  
   const { data: jobs, isLoading } = useQuery({
     queryKey: ['jobs'],
     queryFn: () => api.getAllJobs(),
     refetchInterval: 5000,
   });
+  
+  const cancelMutation = useMutation({
+    mutationFn: (jobId: string) => api.cancelJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+  
+  const handleCancel = (jobId: string, jobName: string) => {
+    if (window.confirm(`"${jobName}" 작업을 취소하시겠습니까?`)) {
+      cancelMutation.mutate(jobId);
+    }
+  };
 
   if (isLoading) {
     return <div className="animate-pulse">로딩 중...</div>;
@@ -74,6 +91,7 @@ export default function Jobs() {
             {jobs?.map((job: any) => {
               const status = statusConfig[job.status] || statusConfig.PENDING;
               const StatusIcon = status.icon;
+              const isInProgress = ['PENDING', 'ANALYZING', 'CONVERTING', 'COMPILING', 'TESTING', 'REVIEWING'].includes(job.status);
               
               return (
                 <tr key={job.id} className="hover:bg-gray-50">
@@ -96,7 +114,8 @@ export default function Jobs() {
                       <div className="w-24 bg-gray-200 rounded-full h-2">
                         <div
                           className={`h-2 rounded-full transition-all ${
-                            job.status === 'FAILED' ? 'bg-red-500' : 'bg-indigo-600'
+                            job.status === 'FAILED' ? 'bg-red-500' : 
+                            job.status === 'CANCELLED' ? 'bg-yellow-500' : 'bg-indigo-600'
                           }`}
                           style={{ width: `${job.progress || 0}%` }}
                         />
@@ -118,6 +137,17 @@ export default function Jobs() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end gap-2">
+                      {isInProgress && (
+                        <button
+                          onClick={() => handleCancel(job.id, job.jobName)}
+                          disabled={cancelMutation.isPending}
+                          className="text-red-600 hover:text-red-900 inline-flex items-center disabled:text-gray-400 disabled:cursor-not-allowed"
+                          title="작업 취소"
+                        >
+                          <StopCircle className="h-4 w-4 mr-1" />
+                          취소
+                        </button>
+                      )}
                       <Link
                         to={`/jobs/${job.id}/monitor`}
                         className="text-indigo-600 hover:text-indigo-900 inline-flex items-center"

@@ -3,7 +3,7 @@
 
 # CLI 도구
 aider-chat>=0.50.0
-fabric-ai>=1.0.0
+# fabric-ai>=1.0.0
 
 # HTTP 서버
 fastapi>=0.109.0

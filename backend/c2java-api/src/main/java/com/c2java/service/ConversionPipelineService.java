@@ -43,11 +43,12 @@ public class ConversionPipelineService {
     @Async
     @Transactional
     public void startConversionWithAirflow(String jobId, List<Path> sourceFiles) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
         
         try {
             log.info("Starting conversion pipeline for job: {}", jobId);
+            job.appendLog("변환 파이프라인을 시작합니다...");
             
             // 1. Airflow DAG 생성 (파일 개수 전달)
             job.setStatus(ConversionJob.JobStatus.PENDING);
@@ -56,9 +57,11 @@ public class ConversionPipelineService {
             
             int fileCount = sourceFiles != null ? sourceFiles.size() : 0;
             log.info("Creating DAG for {} files", fileCount);
+            job.appendLog(String.format("총 %d개의 파일을 변환합니다.", fileCount));
             
             String dagId = airflowDagService.createConversionDag(job, fileCount);
             job.setAirflowDagId(dagId);
+            job.appendLog("Airflow DAG가 생성되었습니다: " + dagId);
             jobRepository.save(job);
             
             // 2. DAG 트리거
@@ -68,14 +71,17 @@ public class ConversionPipelineService {
                     "source_files", sourceFiles.stream().map(Path::toString).toList()
             );
             
+            job.appendLog("Airflow 워크플로우를 시작합니다...");
             Map<String, Object> dagRun = airflowApiService.triggerDag(dagId, config);
             job.setAirflowRunId((String) dagRun.get("dag_run_id"));
+            job.appendLog("워크플로우가 시작되었습니다: " + dagRun.get("dag_run_id"));
             jobRepository.save(job);
             
             log.info("Airflow DAG triggered: {} / {}", dagId, dagRun.get("dag_run_id"));
             
         } catch (Exception e) {
             log.error("Pipeline start failed", e);
+            job.appendLog("파이프라인 시작 실패: " + e.getMessage());
             job.markFailed("파이프라인 시작 실패: " + e.getMessage());
             jobRepository.save(job);
         }
@@ -86,12 +92,19 @@ public class ConversionPipelineService {
      */
     @Transactional
     public Map<String, Object> analyzeStep(String jobId) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
+        
+        // 취소 상태 확인
+        if (job.getStatus() == ConversionJob.JobStatus.CANCELLED) {
+            log.info("Job {} is cancelled, skipping analyze step", jobId);
+            throw new RuntimeException("작업이 취소되었습니다.");
+        }
         
         try {
             job.setStatus(ConversionJob.JobStatus.ANALYZING);
             job.updateProgress("ANALYZE", 10);
+            job.appendLog("파일 분석을 시작합니다...");
             jobRepository.save(job);
             
             // 소스 파일 로드
@@ -145,8 +158,12 @@ public class ConversionPipelineService {
             
         } catch (Exception e) {
             log.error("Analysis failed", e);
-            job.markFailed("분석 실패: " + e.getMessage());
-            jobRepository.save(job);
+            // 취소된 경우는 실패로 표시하지 않음
+            if (job.getStatus() != ConversionJob.JobStatus.CANCELLED) {
+                job.appendLog("분석 실패: " + e.getMessage());
+                job.markFailed("분석 실패: " + e.getMessage());
+                jobRepository.save(job);
+            }
             throw new RuntimeException(e);
         }
     }
@@ -156,22 +173,40 @@ public class ConversionPipelineService {
      */
     @Transactional
     public Map<String, Object> convertStep(String jobId) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
+        
+        // 취소 상태 확인
+        if (job.getStatus() == ConversionJob.JobStatus.CANCELLED) {
+            log.info("Job {} is cancelled, skipping convert step", jobId);
+            throw new RuntimeException("작업이 취소되었습니다.");
+        }
         
         try {
             job.setStatus(ConversionJob.JobStatus.CONVERTING);
             job.updateProgress("CONVERT", 30);
+            job.appendLog("코드 변환을 시작합니다...");
             jobRepository.save(job);
             
             // 소스 파일 로드
             List<Path> sourceFiles = loadSourceFiles(job);
+            job.appendLog(String.format("%d개 파일을 Java로 변환합니다...", sourceFiles.size()));
+            jobRepository.save(job);
+            
+            // 취소 상태 재확인
+            job = jobRepository.findByJobId(UUID.fromString(jobId))
+                    .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
+            if (job.getStatus() == ConversionJob.JobStatus.CANCELLED) {
+                throw new RuntimeException("작업이 취소되었습니다.");
+            }
             
             // Java 코드 생성
             Map<String, String> generatedFiles = converterService.convertCFiles(job, sourceFiles);
+            job.appendLog(String.format("%d개의 Java 파일이 생성되었습니다.", generatedFiles.size()));
+            jobRepository.save(job);
             
             // 생성된 파일 저장
-            Path outputPath = Paths.get("/app/output/" + jobId);
+            Path outputPath = Paths.get("/tmp/c2java/output/" + jobId);
             Files.createDirectories(outputPath);
             
             for (Map.Entry<String, String> entry : generatedFiles.entrySet()) {
@@ -194,8 +229,12 @@ public class ConversionPipelineService {
             
         } catch (Exception e) {
             log.error("Conversion failed", e);
-            job.markFailed("변환 실패: " + e.getMessage());
-            jobRepository.save(job);
+            // 취소된 경우는 실패로 표시하지 않음
+            if (job.getStatus() != ConversionJob.JobStatus.CANCELLED) {
+                job.appendLog("변환 실패: " + e.getMessage());
+                job.markFailed("변환 실패: " + e.getMessage());
+                jobRepository.save(job);
+            }
             throw new RuntimeException(e);
         }
     }
@@ -205,12 +244,19 @@ public class ConversionPipelineService {
      */
     @Transactional
     public Map<String, Object> compileStep(String jobId) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
+        
+        // 취소 상태 확인
+        if (job.getStatus() == ConversionJob.JobStatus.CANCELLED) {
+            log.info("Job {} is cancelled, skipping compile step", jobId);
+            throw new RuntimeException("작업이 취소되었습니다.");
+        }
         
         try {
             job.setStatus(ConversionJob.JobStatus.COMPILING);
             job.updateProgress("COMPILE", 65);
+            job.appendLog("컴파일을 시작합니다...");
             jobRepository.save(job);
             
             Path projectPath = Paths.get(job.getOutputPath());
@@ -219,9 +265,12 @@ public class ConversionPipelineService {
             boolean success = (boolean) buildResult.get("success");
             job.setCompileSuccess(success);
             
-            if (!success) {
+            if (success) {
+                job.appendLog("컴파일이 성공했습니다.");
+            } else {
                 List<String> errors = (List<String>) buildResult.get("errors");
                 job.setCompileErrors(String.join("\n", errors));
+                job.appendLog("컴파일 오류가 발생했습니다: " + errors.size() + "개");
             }
             
             job.updateProgress("COMPILE", 80);
@@ -231,9 +280,13 @@ public class ConversionPipelineService {
             
         } catch (Exception e) {
             log.error("Compilation failed", e);
-            job.setCompileSuccess(false);
-            job.setCompileErrors(e.getMessage());
-            jobRepository.save(job);
+            // 취소된 경우는 실패로 표시하지 않음
+            if (job.getStatus() != ConversionJob.JobStatus.CANCELLED) {
+                job.appendLog("컴파일 실패: " + e.getMessage());
+                job.setCompileSuccess(false);
+                job.setCompileErrors(e.getMessage());
+                jobRepository.save(job);
+            }
             throw new RuntimeException(e);
         }
     }
@@ -243,12 +296,19 @@ public class ConversionPipelineService {
      */
     @Transactional
     public Map<String, Object> testStep(String jobId) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
+        
+        // 취소 상태 확인
+        if (job.getStatus() == ConversionJob.JobStatus.CANCELLED) {
+            log.info("Job {} is cancelled, skipping test step", jobId);
+            throw new RuntimeException("작업이 취소되었습니다.");
+        }
         
         try {
             job.setStatus(ConversionJob.JobStatus.TESTING);
             job.updateProgress("TEST", 85);
+            job.appendLog("테스트를 시작합니다...");
             jobRepository.save(job);
             
             Path projectPath = Paths.get(job.getOutputPath());
@@ -258,6 +318,12 @@ public class ConversionPipelineService {
             job.setTestSuccess(success);
             job.setTestResults(testResult.toString());
             
+            if (success) {
+                job.appendLog("모든 테스트가 통과했습니다.");
+            } else {
+                job.appendLog("일부 테스트가 실패했습니다.");
+            }
+            
             job.updateProgress("TEST", 95);
             jobRepository.save(job);
             
@@ -265,9 +331,13 @@ public class ConversionPipelineService {
             
         } catch (Exception e) {
             log.error("Testing failed", e);
-            job.setTestSuccess(false);
-            job.setTestResults("테스트 실패: " + e.getMessage());
-            jobRepository.save(job);
+            // 취소된 경우는 실패로 표시하지 않음
+            if (job.getStatus() != ConversionJob.JobStatus.CANCELLED) {
+                job.appendLog("테스트 실패: " + e.getMessage());
+                job.setTestSuccess(false);
+                job.setTestResults("테스트 실패: " + e.getMessage());
+                jobRepository.save(job);
+            }
             throw new RuntimeException(e);
         }
     }
@@ -277,7 +347,7 @@ public class ConversionPipelineService {
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getJobStatus(String jobId) {
-        ConversionJob job = jobRepository.findByJobId(jobId)
+        ConversionJob job = jobRepository.findByJobId(UUID.fromString(jobId))
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
         
         Map<String, Object> status = new HashMap<>();

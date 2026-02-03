@@ -4,7 +4,7 @@
 # ============================================
 
 # Build Stage
-FROM gradle:8.5-jdk21-alpine AS builder
+FROM gradle:8.5-jdk21 AS builder
 
 WORKDIR /app
 
@@ -24,11 +24,7 @@ RUN gradle bootJar --no-daemon
 # ============================================
 # Runtime Stage
 # ============================================
-FROM eclipse-temurin:21-jre-alpine
-
-# 보안: 비root 사용자 생성
-RUN addgroup -g 1001 -S c2java && \
-    adduser -u 1001 -S c2java -G c2java
+FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
@@ -36,11 +32,9 @@ WORKDIR /app
 COPY --from=builder /app/build/libs/c2java-api.jar app.jar
 
 # 필요한 디렉토리 생성
-RUN mkdir -p /app/workspace /app/output /app/logs /app/config && \
-    chown -R c2java:c2java /app
+RUN mkdir -p /app/workspace /app/output /app/logs /app/config
 
-# 비root 사용자로 전환
-USER c2java
+# 개발 환경에서 Docker 소켓 접근을 위해 root로 실행
 
 # 환경변수
 ENV JAVA_OPTS="-Xms512m -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"

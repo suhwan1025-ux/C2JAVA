@@ -24,8 +24,8 @@ import java.util.UUID;
 public class ConversionJob {
 
     @Id
-    @Column(name = "job_id", length = 36)
-    private String jobId;
+    @Column(name = "id")
+    private UUID jobId;
 
     @Column(name = "job_name", nullable = false)
     private String jobName;
@@ -113,6 +113,11 @@ public class ConversionJob {
     @Lob
     private String errorStackTrace;
 
+    // 실시간 로그
+    @Column(name = "execution_log", columnDefinition = "TEXT")
+    @Lob
+    private String executionLog;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -139,7 +144,7 @@ public class ConversionJob {
     @PrePersist
     public void prePersist() {
         if (this.jobId == null) {
-            this.jobId = UUID.randomUUID().toString();
+            this.jobId = UUID.randomUUID();
         }
         if (this.status == null) {
             this.status = JobStatus.PENDING;
@@ -149,6 +154,9 @@ public class ConversionJob {
         }
         if (this.currentStage == null) {
             this.currentStage = "UPLOAD";
+        }
+        if (this.compileAttempts == null) {
+            this.compileAttempts = 0;
         }
     }
 
@@ -170,7 +178,7 @@ public class ConversionJob {
 
     // 기존 코드 호환성을 위한 메서드들
     public String getId() {
-        return this.jobId;
+        return this.jobId != null ? this.jobId.toString() : null;
     }
 
     public String getSourcePath() {
@@ -198,5 +206,26 @@ public class ConversionJob {
         this.outputPath = outputPath;
         this.progress = 100;
         this.completedAt = LocalDateTime.now();
+    }
+    
+    /**
+     * 실행 로그 추가
+     */
+    public void appendLog(String message) {
+        String timestamp = LocalDateTime.now().toString();
+        String logEntry = String.format("[%s] %s\n", timestamp, message);
+        
+        if (this.executionLog == null) {
+            this.executionLog = logEntry;
+        } else {
+            this.executionLog += logEntry;
+        }
+    }
+    
+    /**
+     * 로그 초기화
+     */
+    public void clearLog() {
+        this.executionLog = "";
     }
 }

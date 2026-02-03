@@ -28,6 +28,8 @@ public class CodeConverterService {
     private final CFileAnalyzerService analyzerService;
     private final RulesService rulesService;
     private final LlmService llmService;
+    private final CliService cliService;
+    private final EnvSyncService envSyncService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -76,12 +78,47 @@ public class CodeConverterService {
             generatedFiles.putAll(converted);
         }
         
-        // 4. 매핑 파일 생성
+        // 4. Gradle 프로젝트 파일 생성 (build.gradle, settings.gradle, application.yml)
+        String projectName = "converted-project-" + job.getJobId().toString().substring(0, 8);
+        generatedFiles.putAll(generateGradleProjectFiles(job.getTargetLanguage(), projectName));
+        
+        // 5. 매핑 파일 생성
         String mappingFile = generateMappingFile(analyzed, generatedFiles);
         generatedFiles.put("conversion-mapping.json", mappingFile);
         
         log.info("Conversion completed. Generated {} files", generatedFiles.size());
         return generatedFiles;
+    }
+
+    /**
+     * 환경변수에 따라 CLI 또는 LLM 사용
+     */
+    private String convertWithActiveBackend(String sourceCode, String sourcePath, 
+                                            String conversionRules, String projectStructure, String prompt) {
+        try {
+            Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+            String activeTool = cliConfig.getOrDefault("ACTIVE_CLI_TOOL", "aider");
+            
+            log.info("Active conversion tool: {}", activeTool);
+            
+            // 외부망 CLI 도구 (cursor, claude)는 CLI Service 사용
+            if ("cursor".equals(activeTool) || "claude".equals(activeTool)) {
+                log.info("Using CLI Service for conversion with {}", activeTool);
+                String result = cliService.convertWithActiveCli(sourcePath, sourceCode, conversionRules, prompt);
+                if (result != null && !result.isEmpty()) {
+                    return result;
+                }
+                log.warn("CLI conversion returned empty, falling back to direct LLM API");
+            }
+            
+            // 폐쇄망 (aider, fabric) 또는 fallback: 직접 LLM API 호출
+            log.info("Using direct LLM API for conversion");
+            return llmService.convertCode(sourceCode, conversionRules, projectStructure, prompt);
+            
+        } catch (Exception e) {
+            log.error("Conversion backend selection failed, using LLM API as fallback", e);
+            return llmService.convertCode(sourceCode, conversionRules, projectStructure, prompt);
+        }
     }
 
     /**
@@ -95,9 +132,9 @@ public class CodeConverterService {
         String sourceCode = sourcePath != null ? Files.readString(sourcePath) : "";
         
         switch (structure.getFileType()) {
-            case "pro_c" -> generated.putAll(convertProCFile(structure, sourceCode, conversionRules, projectStructure));
-            case "c_source" -> generated.putAll(convertCSourceFile(structure, sourceCode, conversionRules, projectStructure));
-            case "c_header" -> generated.putAll(convertCHeaderFile(structure, sourceCode, conversionRules, projectStructure));
+            case "pro_c" -> generated.putAll(convertProCFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
+            case "c_source" -> generated.putAll(convertCSourceFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
+            case "c_header" -> generated.putAll(convertCHeaderFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
         }
         
         return generated;
@@ -106,7 +143,7 @@ public class CodeConverterService {
     /**
      * Pro*C 파일 변환 → Repository + Entity
      */
-    private Map<String, String> convertProCFile(CFileStructure structure, String sourceCode,
+    private Map<String, String> convertProCFile(CFileStructure structure, String sourceCode, String sourcePath,
                                                 String conversionRules, String projectStructure) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".pc", "");
@@ -125,6 +162,11 @@ public class CodeConverterService {
                 - 바인드 변수만 camelCase로 변경
                 - [C2JAVA-SQL] 주석 필수
                 
+                [라이브러리 제약]
+                - Spring Data JPA (JpaRepository, @Query, @Param)만 사용
+                - import는 org.springframework.*, javax.persistence.*, lombok.* 만
+                - 절대 금지: Hibernate 직접 호출, JDBC Template, MyBatis
+                
                 Repository 인터페이스 코드만 생성하세요.
                 파일명: %sRepository.java
                 """,
@@ -133,7 +175,7 @@ public class CodeConverterService {
                 structure.getStructs().size(),
                 baseName);
         
-        String repositoryCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, repositoryPrompt);
+        String repositoryCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, repositoryPrompt);
         generated.put(baseName + "Repository.java", repositoryCode);
         
         // Entity 생성 (구조체가 있는 경우)
@@ -152,7 +194,7 @@ public class CodeConverterService {
                             .reduce((a, b) -> a + ", " + b).orElse(""),
                     baseName);
             
-            String entityCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, entityPrompt);
+            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt);
             generated.put(baseName + ".java", entityCode);
         }
         
@@ -162,7 +204,7 @@ public class CodeConverterService {
     /**
      * C 소스 파일 변환 → Service + Controller
      */
-    private Map<String, String> convertCSourceFile(CFileStructure structure, String sourceCode,
+    private Map<String, String> convertCSourceFile(CFileStructure structure, String sourceCode, String sourcePath,
                                                    String conversionRules, String projectStructure) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".c", "");
@@ -174,6 +216,11 @@ public class CodeConverterService {
                 [함수 목록]
                 %s
                 
+                [라이브러리 제약]
+                - Java 표준 라이브러리 (java.util.*, java.time.*, java.math.*)만 사용
+                - Spring Framework (org.springframework.*)는 ServiceImpl에서만
+                - 절대 금지: 외부 HTTP 클라이언트, AWS SDK, Azure SDK
+                
                 Service 인터페이스 코드만 생성하세요.
                 파일명: %sService.java
                 """,
@@ -182,7 +229,7 @@ public class CodeConverterService {
                         .reduce((a, b) -> a + ", " + b).orElse(""),
                 baseName);
         
-        String serviceCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, servicePrompt);
+        String serviceCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, servicePrompt);
         generated.put(baseName + "Service.java", serviceCode);
         
         // ServiceImpl
@@ -190,11 +237,18 @@ public class CodeConverterService {
                 Service 인터페이스의 구현체를 생성하세요.
                 원본 C 함수 로직을 Java로 변환하세요.
                 
+                [라이브러리 제약]
+                - Spring Boot: @Service, @Transactional, @RequiredArgsConstructor (lombok)
+                - 로깅: @Slf4j (lombok) 또는 System.out
+                - 유틸: Apache Commons Lang3 (StringUtils, NumberUtils)
+                - 컬렉션: java.util.*, java.util.stream.*, Guava (Lists, Maps)
+                - 절대 금지: RestTemplate 직접 생성, 외부 API 직접 호출
+                
                 ServiceImpl 클래스 코드만 생성하세요.
                 파일명: %sServiceImpl.java
                 """, baseName);
         
-        String implCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, implPrompt);
+        String implCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, implPrompt);
         generated.put(baseName + "ServiceImpl.java", implCode);
         
         return generated;
@@ -203,7 +257,7 @@ public class CodeConverterService {
     /**
      * C 헤더 파일 변환 → Entity + DTO + Enum
      */
-    private Map<String, String> convertCHeaderFile(CFileStructure structure, String sourceCode,
+    private Map<String, String> convertCHeaderFile(CFileStructure structure, String sourceCode, String sourcePath,
                                                    String conversionRules, String projectStructure) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".h", "");
@@ -223,7 +277,7 @@ public class CodeConverterService {
                     struct.getFields().size(),
                     struct.getName());
             
-            String entityCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, entityPrompt);
+            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt);
             generated.put(struct.getName() + ".java", entityCode);
         }
         
@@ -242,7 +296,7 @@ public class CodeConverterService {
                     enumInfo.getValues().size(),
                     enumInfo.getName());
             
-            String enumCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, enumPrompt);
+            String enumCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, enumPrompt);
             generated.put(enumInfo.getName() + ".java", enumCode);
         }
         
@@ -259,7 +313,7 @@ public class CodeConverterService {
                     structure.getDefines().size(),
                     baseName);
             
-            String constantsCode = llmService.convertCode(sourceCode, conversionRules, projectStructure, constantsPrompt);
+            String constantsCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, constantsPrompt);
             generated.put(baseName + "Constants.java", constantsCode);
         }
         
@@ -330,5 +384,129 @@ public class CodeConverterService {
         if (fileName.endsWith("Constants.java")) return "constants";
         if (fileName.contains("domain/")) return "entity";
         return "class";
+    }
+
+    /**
+     * Gradle 프로젝트 파일 생성
+     */
+    private Map<String, String> generateGradleProjectFiles(String targetLanguage, String projectName) {
+        Map<String, String> projectFiles = new LinkedHashMap<>();
+        
+        try {
+            // 규칙 파일 경로
+            Path rulesDir = Paths.get(System.getProperty("user.home"), "Desktop", "C2JAVA", "config", "rules", targetLanguage);
+            
+            // build.gradle 템플릿 로드
+            Path buildGradleTemplate = rulesDir.resolve("build.gradle.template");
+            if (Files.exists(buildGradleTemplate)) {
+                String buildGradle = Files.readString(buildGradleTemplate);
+                buildGradle = buildGradle.replace("{{PROJECT_NAME}}", projectName);
+                projectFiles.put("build.gradle", buildGradle);
+                log.info("Generated build.gradle");
+            } else {
+                log.warn("build.gradle.template not found, using default");
+                projectFiles.put("build.gradle", generateDefaultBuildGradle());
+            }
+            
+            // settings.gradle 템플릿 로드
+            Path settingsGradleTemplate = rulesDir.resolve("settings.gradle.template");
+            if (Files.exists(settingsGradleTemplate)) {
+                String settingsGradle = Files.readString(settingsGradleTemplate);
+                settingsGradle = settingsGradle.replace("{{PROJECT_NAME}}", projectName);
+                projectFiles.put("settings.gradle", settingsGradle);
+                log.info("Generated settings.gradle");
+            } else {
+                projectFiles.put("settings.gradle", "rootProject.name = '" + projectName + "'");
+            }
+            
+            // application.yml 템플릿 로드
+            Path applicationYmlTemplate = rulesDir.resolve("application.yml.template");
+            if (Files.exists(applicationYmlTemplate)) {
+                String applicationYml = Files.readString(applicationYmlTemplate);
+                applicationYml = applicationYml.replace("{{PROJECT_NAME}}", projectName);
+                projectFiles.put("src/main/resources/application.yml", applicationYml);
+                log.info("Generated application.yml");
+            }
+            
+            // gradlew, gradlew.bat (실행 가능 wrapper 스크립트)
+            projectFiles.put("gradlew", generateGradlew());
+            projectFiles.put("gradlew.bat", generateGradlewBat());
+            projectFiles.put("gradle/wrapper/gradle-wrapper.properties", generateGradleWrapperProperties());
+            
+            log.info("Generated {} Gradle project files", projectFiles.size());
+            
+        } catch (IOException e) {
+            log.error("Failed to generate Gradle project files", e);
+            projectFiles.put("build.gradle", generateDefaultBuildGradle());
+            projectFiles.put("settings.gradle", "rootProject.name = '" + projectName + "'");
+        }
+        
+        return projectFiles;
+    }
+
+    /**
+     * 기본 build.gradle 생성
+     */
+    private String generateDefaultBuildGradle() {
+        return """
+                plugins {
+                    id 'java'
+                    id 'org.springframework.boot' version '3.2.5'
+                    id 'io.spring.dependency-management' version '1.1.4'
+                }
+                
+                group = 'com.converted'
+                version = '1.0.0'
+                
+                java {
+                    sourceCompatibility = '21'
+                }
+                
+                repositories {
+                    mavenCentral()
+                }
+                
+                dependencies {
+                    implementation 'org.springframework.boot:spring-boot-starter-web'
+                    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+                    runtimeOnly 'org.postgresql:postgresql'
+                    compileOnly 'org.projectlombok:lombok'
+                    annotationProcessor 'org.projectlombok:lombok'
+                }
+                """;
+    }
+
+    /**
+     * gradlew 스크립트 생성
+     */
+    private String generateGradlew() {
+        return """
+                #!/bin/sh
+                # Gradle Wrapper Script
+                exec gradle "$@"
+                """;
+    }
+
+    /**
+     * gradlew.bat 스크립트 생성
+     */
+    private String generateGradlewBat() {
+        return """
+                @echo off
+                gradle %*
+                """;
+    }
+
+    /**
+     * gradle-wrapper.properties 생성
+     */
+    private String generateGradleWrapperProperties() {
+        return """
+                distributionBase=GRADLE_USER_HOME
+                distributionPath=wrapper/dists
+                distributionUrl=https\\://services.gradle.org/distributions/gradle-8.5-bin.zip
+                zipStoreBase=GRADLE_USER_HOME
+                zipStorePath=wrapper/dists
+                """;
     }
 }

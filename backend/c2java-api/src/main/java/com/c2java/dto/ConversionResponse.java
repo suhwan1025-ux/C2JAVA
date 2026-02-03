@@ -22,12 +22,18 @@ public class ConversionResponse {
     private String jobName;
     private String status;
     private String sourcePath;
+    private String sourceFilePath;
     private String outputPath;
     private String llmProvider;
+    private String currentStage;
+    private Integer progress;
     private LocalDateTime createdAt;
+    private LocalDateTime startedAt;
     private LocalDateTime completedAt;
     private String errorMessage;
     private Integer compileAttempts;
+    private Integer retryCount;
+    private String executionLog;
     
     /**
      * Entity에서 DTO 생성
@@ -38,12 +44,17 @@ public class ConversionResponse {
                 .jobName(job.getJobName())
                 .status(job.getStatus().name())
                 .sourcePath(job.getSourcePath())
+                .sourceFilePath(job.getSourceFilePath())
                 .outputPath(job.getOutputPath())
                 .llmProvider(job.getLlmProvider())
+                .currentStage(job.getCurrentStage())
+                .progress(job.getProgress())
                 .createdAt(job.getCreatedAt())
                 .completedAt(job.getCompletedAt())
                 .errorMessage(job.getErrorMessage())
                 .compileAttempts(job.getCompileAttempts())
+                .retryCount(job.getCompileAttempts())
+                .executionLog(job.getExecutionLog())
                 .build();
     }
 }

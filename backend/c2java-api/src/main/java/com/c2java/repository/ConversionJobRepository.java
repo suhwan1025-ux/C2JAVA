@@ -12,7 +12,7 @@ import java.util.UUID;
  * 변환 작업 Repository
  */
 @Repository
-public interface ConversionJobRepository extends JpaRepository<ConversionJob, String> {
+public interface ConversionJobRepository extends JpaRepository<ConversionJob, UUID> {
     
     List<ConversionJob> findByUserIdOrderByCreatedAtDesc(UUID userId);
     
@@ -22,7 +22,7 @@ public interface ConversionJobRepository extends JpaRepository<ConversionJob, St
     
     List<ConversionJob> findAllByOrderByCreatedAtDesc();
     
-    Optional<ConversionJob> findByJobId(String jobId);
+    Optional<ConversionJob> findByJobId(UUID jobId);
     
     long countByStatus(ConversionJob.JobStatus status);
 }

@@ -42,7 +42,7 @@ public class AirflowDagService {
      * 변환 작업용 DAG 생성 (파일 개수 지정)
      */
     public String createConversionDag(ConversionJob job, int fileCount) throws IOException {
-        String dagId = "c2java_" + job.getJobId().replace("-", "_");
+        String dagId = "c2java_" + job.getJobId().toString().replace("-", "_");
         
         // 배치 수 계산
         int totalBatches = fileCount > 0 ? (int) Math.ceil((double) fileCount / batchSize) : 1;

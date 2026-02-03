@@ -43,6 +43,8 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${DB_NAME:-c2java}
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-c2java_user}
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-c2java_password}
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+      - SPRING_SQL_INIT_MODE=never
       - ACTIVE_LLM_PROVIDER=${ACTIVE_LLM_PROVIDER:-qwen3}
       - QWEN3_API_URL=${QWEN3_API_URL}
       - QWEN3_API_KEY=${QWEN3_API_KEY}
@@ -52,7 +54,10 @@ services:
       - workspace_data:/app/workspace
       - output_data:/app/output
       - ../../config/rules:/app/config/rules:ro
+      - ../../config/env:/app/config/env
       - logs_data:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../docker/compose:/app/docker/compose
     ports:
       - "${SERVER_PORT:-8080}:8080"
     depends_on:
@@ -100,6 +105,8 @@ services:
       - workspace_data:/app/workspace
       - output_data:/app/output
       - ../../config/rules:/app/config/rules:ro
+    ports:
+      - "${CLI_SERVICE_PORT:-8083}:8000"
     networks:
       - c2java-network
 

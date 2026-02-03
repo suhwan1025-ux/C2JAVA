@@ -46,7 +46,7 @@ server:
 # ============================================
 env:
   file:
-    path: ${ENV_FILE_PATH:config/env/.env.internal}
+    path: ${ENV_FILE_PATH:/app/config/env/.env.internal}
 
 # ============================================
 # LLM 설정
@@ -102,7 +102,7 @@ file-server:
   auth-token: ${FILE_SERVER_AUTH_TOKEN:}
   connect-timeout: ${FILE_SERVER_CONNECT_TIMEOUT:30}
   read-timeout: ${FILE_SERVER_READ_TIMEOUT:60}
-  local-path: ${CONVERSION_WORKSPACE:/app/workspace}
+  local-path: ${CONVERSION_WORKSPACE:/tmp/c2java/workspace}
 
 # ============================================
 # 변환 설정
@@ -110,8 +110,8 @@ file-server:
 conversion:
   workspace-dir: ${CONVERSION_WORKSPACE:/app/workspace}
   output-dir: ${OUTPUT_DIR:/app/output}
-  rules-dir: ${RULES_DIR:/Users/dongsoo/Desktop/C2JAVA/config/rules}
-  library-path: ${LIBRARY_PATH:/app/libs}
+  rules-dir: ${RULES_DIR:/app/config/rules}
+  library-path: ${LIBRARY_PATH:/tmp/c2java/libs}
   
   # 배치 처리 설정
   batch-size: ${CONVERSION_BATCH_SIZE:10}  # 파일 개수/배치 (권장: 5-10)
@@ -131,7 +131,7 @@ airflow:
   url: ${AIRFLOW_URL:http://localhost:8081}
   username: ${AIRFLOW_USERNAME:admin}
   password: ${AIRFLOW_PASSWORD:admin}
-  dags-dir: ${AIRFLOW_DAGS_DIR:/app/airflow/dags}
+  dags-dir: ${AIRFLOW_DAGS_DIR:/tmp/c2java/airflow/dags}
   enabled: ${AIRFLOW_ENABLED:false}
 
 # ============================================
@@ -166,12 +166,14 @@ logging:
   level:
     root: INFO
     com.c2java: DEBUG
-    org.springframework.web: INFO
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: DEBUG
     org.hibernate.SQL: DEBUG
   file:
-    path: ${LOG_DIR:/app/logs}
-    name: ${LOG_DIR:/app/logs}/c2java-api.log
+    path: ${LOG_DIR:/tmp/c2java/logs}
+    name: ${LOG_DIR:/tmp/c2java/logs}/c2java-api.log
   pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${PID:- } --- [%15.15t] %-40.40logger{39} : %m%n%wEx"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 # ============================================

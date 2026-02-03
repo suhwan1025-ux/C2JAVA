@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -155,6 +156,112 @@ public class AirflowApiService {
             log.info("DAG deleted: {}", dagId);
         } catch (Exception e) {
             log.error("Failed to delete DAG: {}", dagId, e);
+        }
+    }
+    
+    /**
+     * DAG Run 삭제 (완전 제거)
+     */
+    public void deleteDagRun(String dagId, String dagRunId) {
+        WebClient client = createWebClient();
+        
+        try {
+            client.delete()
+                    .uri("/api/v1/dags/{dag_id}/dagRuns/{dag_run_id}", dagId, dagRunId)
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .block();
+            
+            log.info("DAG Run deleted: {} / {}", dagId, dagRunId);
+        } catch (Exception e) {
+            log.error("Failed to delete DAG Run: {} / {}", dagId, dagRunId, e);
+            throw new RuntimeException("DAG Run 삭제 실패: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * DAG Run 취소 (실행 중단)
+     */
+    public Map<String, Object> cancelDagRun(String dagId, String dagRunId) {
+        WebClient client = createWebClient();
+        
+        log.info("Cancelling DAG Run: {} / {}", dagId, dagRunId);
+        
+        try {
+            // 1. 먼저 실행 중인 모든 Task Instance 취소
+            Map<String, Object> taskInstances = getAllTaskInstances(dagId, dagRunId);
+            if (taskInstances != null && taskInstances.containsKey("task_instances")) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> tasks = (List<Map<String, Object>>) taskInstances.get("task_instances");
+                
+                for (Map<String, Object> task : tasks) {
+                    String taskId = (String) task.get("task_id");
+                    String state = (String) task.get("state");
+                    
+                    // running이나 queued 상태인 Task만 취소
+                    if ("running".equals(state) || "queued".equals(state)) {
+                        try {
+                            log.info("Cancelling task instance: {}", taskId);
+                            clearTaskInstance(dagId, dagRunId, taskId);
+                        } catch (Exception e) {
+                            log.warn("Failed to cancel task {}: {}", taskId, e.getMessage());
+                        }
+                    }
+                }
+            }
+            
+            // 2. DAG Run 상태를 failed로 변경
+            Map<String, Object> request = Map.of("state", "failed");
+            
+            Map<String, Object> response = client.patch()
+                    .uri("/api/v1/dags/{dag_id}/dagRuns/{dag_run_id}", dagId, dagRunId)
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            
+            log.info("DAG Run cancelled successfully: {}", dagRunId);
+            return response != null ? response : Map.of("state", "cancelled");
+            
+        } catch (Exception e) {
+            log.error("Failed to cancel DAG Run: {} / {}", dagId, dagRunId, e);
+            throw new RuntimeException("Airflow DAG 실행 취소 실패: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Task Instance 취소 (Clear)
+     */
+    public void clearTaskInstance(String dagId, String dagRunId, String taskId) {
+        WebClient client = createWebClient();
+        
+        try {
+            // Task Instance의 상태를 failed로 변경
+            Map<String, Object> request = Map.of(
+                "dry_run", false,
+                "task_ids", List.of(taskId),
+                "dag_run_id", dagRunId,
+                "include_upstream", false,
+                "include_downstream", false,
+                "include_future", false,
+                "include_past", false,
+                "reset_dag_runs", false,
+                "only_failed", false,
+                "only_running", true
+            );
+            
+            client.post()
+                    .uri("/api/v1/dags/{dag_id}/clearTaskInstances", dagId)
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .block();
+            
+            log.info("Task instance cleared: {} / {} / {}", dagId, dagRunId, taskId);
+            
+        } catch (Exception e) {
+            log.error("Failed to clear task instance: {}", taskId, e);
+            // Task 취소 실패는 무시하고 계속 진행
         }
     }
 

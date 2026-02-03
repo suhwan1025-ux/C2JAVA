@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class EnvSyncService {
 
-    @Value("${env.file.path:config/env/.env.internal}")
+    @Value("${env.file.path:/app/config/env/.env.internal}")
     private String envFilePath;
 
     private static final Set<String> LLM_ENV_KEYS = Set.of(
@@ -31,8 +31,12 @@ public class EnvSyncService {
     );
 
     private static final Set<String> CLI_ENV_KEYS = Set.of(
+            "ACTIVE_CLI_TOOL",
             "AIDER_ENABLED", "AIDER_AUTO_COMMITS",
-            "FABRIC_ENABLED", "FABRIC_DEFAULT_PATTERN"
+            "FABRIC_ENABLED", "FABRIC_DEFAULT_PATTERN",
+            "CURSOR_CLI_ENABLED", "CURSOR_CLI_AUTH_TOKEN", "CURSOR_CLI_MODEL",
+            "CLAUDE_CLI_ENABLED", "ANTHROPIC_API_KEY", "CLAUDE_CLI_MODEL",
+            "WORKSPACE_PATH"
     );
 
     private static final Set<String> FILE_SERVER_ENV_KEYS = Set.of(

@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.RuntimeMXBean;
@@ -205,6 +207,13 @@ public class AdminService {
     }
 
     /**
+     * 환경변수 파일에서 워커 서버 설정 읽기
+     */
+    public Map<String, String> getWorkerServerEnvVariables() {
+        return envSyncService.loadWorkerServerEnvVariables();
+    }
+
+    /**
      * LLM 설정을 환경변수 파일에 저장
      */
     public void saveLlmEnvVariables(Map<String, String> envVars) {
@@ -218,6 +227,14 @@ public class AdminService {
     public void saveCliEnvVariables(Map<String, String> envVars) {
         envSyncService.saveEnvVariables(envVars);
         log.info("CLI environment variables saved");
+    }
+
+    /**
+     * 워커 서버 설정을 환경변수 파일에 저장
+     */
+    public void saveWorkerServerEnvVariables(Map<String, String> envVars) {
+        envSyncService.saveEnvVariables(envVars);
+        log.info("Worker server environment variables saved");
     }
 
     /**
@@ -245,6 +262,147 @@ public class AdminService {
         Map<String, Object> result = new HashMap<>();
         result.put("connected", connected);
         result.put("message", connected ? "파일 서버 연결 성공" : "파일 서버 연결 실패");
+        return result;
+    }
+
+    /**
+     * CLI 도구 연결 테스트
+     */
+    public Map<String, Object> testCliConnection(String tool, String token, String apiKey) {
+        Map<String, Object> result = new HashMap<>();
+        boolean success = false;
+        String message = "";
+        String details = "";
+
+        try {
+            if ("cursor".equalsIgnoreCase(tool)) {
+                // Cursor Agent CLI 실행 테스트
+                log.info("Testing Cursor Agent CLI connection...");
+                
+                // CLI 경로 찾기 (여러 가능한 위치 시도)
+                String[] possiblePaths = {
+                    "/Users/dongsoo/.local/bin/agent",
+                    System.getProperty("user.home") + "/.local/bin/agent",
+                    "/usr/local/bin/agent",
+                    "agent" // PATH에서 찾기
+                };
+                
+                String cliPath = null;
+                for (String path : possiblePaths) {
+                    java.io.File file = new java.io.File(path);
+                    if (file.exists() && file.canExecute()) {
+                        cliPath = path;
+                        break;
+                    }
+                }
+                
+                if (cliPath == null) {
+                    cliPath = "agent"; // PATH에서 찾기 시도
+                }
+                
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(cliPath, "--version");
+                    pb.redirectErrorStream(true);
+                    Process process = pb.start();
+                    
+                    java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(process.getInputStream())
+                    );
+                    StringBuilder output = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        output.append(line).append("\n");
+                    }
+                    
+                    int exitCode = process.waitFor();
+                    details = output.toString().trim();
+                    
+                    if (exitCode == 0) {
+                        success = true;
+                        message = "✓ Cursor Agent CLI가 정상적으로 설치되어 있습니다.";
+                        log.info("Cursor Agent CLI test successful: {}", details);
+                    } else {
+                        message = "✗ Cursor Agent CLI 실행 실패 (Exit Code: " + exitCode + ")";
+                        log.warn("Cursor Agent CLI test failed: {}", details);
+                    }
+                } catch (java.io.IOException e) {
+                    message = "✗ Cursor Agent CLI를 찾을 수 없습니다. 설치 경로를 확인해주세요.";
+                    details = "경로: /Users/dongsoo/.local/bin/agent";
+                    log.error("Cursor Agent CLI not found", e);
+                } catch (InterruptedException e) {
+                    message = "✗ Cursor Agent CLI 테스트 중 인터럽트 발생";
+                    log.error("Cursor Agent CLI test interrupted", e);
+                    Thread.currentThread().interrupt();
+                }
+                
+            } else if ("claude".equalsIgnoreCase(tool)) {
+                // Claude API Key 실제 테스트 (간단한 API 호출)
+                log.info("Testing Claude API connection...");
+                
+                if (apiKey == null || apiKey.isEmpty()) {
+                    message = "✗ Claude API Key가 입력되지 않았습니다.";
+                } else if (!apiKey.startsWith("sk-ant-")) {
+                    message = "✗ 유효하지 않은 Claude API Key 형식입니다. (sk-ant- 로 시작해야 함)";
+                } else {
+                    try {
+                        // WebClient를 사용한 실제 API 테스트
+                        org.springframework.web.reactive.function.client.WebClient client = 
+                            org.springframework.web.reactive.function.client.WebClient.builder()
+                                .baseUrl("https://api.anthropic.com")
+                                .defaultHeader("x-api-key", apiKey)
+                                .defaultHeader("anthropic-version", "2023-06-01")
+                                .defaultHeader("Content-Type", "application/json")
+                                .build();
+                        
+                        // 간단한 메시지 테스트 (최소 토큰 사용)
+                        Map<String, Object> requestBody = Map.of(
+                            "model", "claude-3-5-sonnet-20240620",
+                            "max_tokens", 10,
+                            "messages", java.util.List.of(
+                                Map.of("role", "user", "content", "Hi")
+                            )
+                        );
+                        
+                        Map<String, Object> response = client.post()
+                            .uri("/v1/messages")
+                            .bodyValue(requestBody)
+                            .retrieve()
+                            .bodyToMono(Map.class)
+                            .block(java.time.Duration.ofSeconds(10));
+                        
+                        if (response != null && response.containsKey("id")) {
+                            success = true;
+                            message = "✓ Claude API 연결이 정상적으로 작동합니다.";
+                            details = "Model: " + response.get("model");
+                            log.info("Claude API test successful");
+                        } else {
+                            message = "✗ Claude API 응답이 올바르지 않습니다.";
+                            log.warn("Claude API unexpected response: {}", response);
+                        }
+                        
+                    } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
+                        message = "✗ Claude API 인증 실패: " + e.getStatusCode();
+                        details = e.getResponseBodyAsString();
+                        log.error("Claude API authentication failed", e);
+                    } catch (Exception e) {
+                        message = "✗ Claude API 연결 실패: " + e.getMessage();
+                        log.error("Claude API connection failed", e);
+                    }
+                }
+                
+            } else {
+                message = "✗ 지원하지 않는 CLI 도구입니다: " + tool;
+            }
+        } catch (Exception e) {
+            log.error("CLI connection test failed", e);
+            message = "✗ 연결 테스트 중 오류가 발생했습니다: " + e.getMessage();
+        }
+
+        result.put("success", success);
+        result.put("message", message);
+        if (!details.isEmpty()) {
+            result.put("details", details);
+        }
         return result;
     }
 
@@ -281,6 +439,96 @@ public class AdminService {
         if (source.getTemperature() >= 0) {
             target.setTemperature(source.getTemperature());
         }
+    }
+
+    /**
+     * 워크스페이스 디렉토리 열기
+     */
+    public boolean openWorkspaceDirectory(String path) {
+        try {
+            if (path == null || path.isEmpty()) {
+                return false;
+            }
+            
+            File directory = new File(path);
+            if (!directory.exists() || !directory.isDirectory()) {
+                return false;
+            }
+
+            String os = System.getProperty("os.name").toLowerCase();
+            if (os.contains("win")) {
+                Runtime.getRuntime().exec(new String[]{"explorer", path});
+            } else if (os.contains("mac")) {
+                Runtime.getRuntime().exec(new String[]{"open", path});
+            } else if (os.contains("nix") || os.contains("nux") || os.contains("aix")) {
+                Runtime.getRuntime().exec(new String[]{"xdg-open", path});
+            } else {
+                return false;
+            }
+            return true;
+        } catch (IOException e) {
+            log.error("Failed to open workspace directory: {}", path, e);
+            return false;
+        }
+    }
+
+    /**
+     * 워커 서버 상태 확인
+     */
+    public Map<String, Object> getWorkerServerStatus() {
+        Map<String, Object> status = new HashMap<>();
+        Map<String, String> workerEnv = getWorkerServerEnvVariables();
+        
+        String workerServerUrl = workerEnv.get("WORKER_SERVER_URL");
+        boolean isWorkerEnabled = workerServerUrl != null && !workerServerUrl.isEmpty() 
+                                && !workerServerUrl.contains("localhost") 
+                                && !workerServerUrl.startsWith("http://192.168.");
+        
+        status.put("enabled", isWorkerEnabled);
+        status.put("url", workerServerUrl);
+        
+        if (isWorkerEnabled) {
+            try {
+                // 워커 서버의 CLI 서비스 health 체크
+                String healthUrl = workerServerUrl.replaceAll("/api$", "") + "/health";
+                org.springframework.web.reactive.function.client.WebClient webClient = 
+                    org.springframework.web.reactive.function.client.WebClient.builder()
+                        .baseUrl(healthUrl)
+                        .build();
+                        
+                Map<String, Object> healthResponse = webClient.get()
+                    .retrieve()
+                    .bodyToMono(new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block(java.time.Duration.ofSeconds(5));
+                    
+                if (healthResponse != null && "healthy".equals(healthResponse.get("status"))) {
+                    status.put("cliService", Map.of(
+                        "running", true,
+                        "message", "CLI Service가 정상 작동 중입니다.",
+                        "details", healthResponse
+                    ));
+                } else {
+                    status.put("cliService", Map.of(
+                        "running", false,
+                        "message", "CLI Service 상태를 확인할 수 없습니다."
+                    ));
+                }
+            } catch (Exception e) {
+                log.warn("워커 서버 상태 확인 실패: {}", e.getMessage());
+                status.put("cliService", Map.of(
+                    "running", false,
+                    "message", "CLI Service에 연결할 수 없습니다: " + e.getMessage(),
+                    "error", e.getClass().getSimpleName()
+                ));
+            }
+        } else {
+            status.put("cliService", Map.of(
+                "running", false,
+                "message", "워커 서버가 설정되지 않았습니다."
+            ));
+        }
+        
+        return status;
     }
 
     /**

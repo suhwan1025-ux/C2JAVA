@@ -46,21 +46,8 @@ public class SecurityConfig {
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(auth -> auth
-                // 공개 엔드포인트
-                .requestMatchers(
-                    "/v1/auth/**",
-                    "/actuator/health",
-                    "/actuator/info",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/api-docs/**",
-                    "/v3/api-docs/**",
-                    "/h2-console/**"
-                ).permitAll()
-                // 관리자 전용
-                .requestMatchers("/v1/admin/**", "/v1/configs/**").hasAnyRole("ADMIN", "MANAGER")
-                // 나머지는 인증 필요
-                .anyRequest().authenticated()
+                // 공개 엔드포인트 (context-path /api를 고려하여 설정)
+                .requestMatchers("/**").permitAll()  // 모든 요청 허용 (개발 환경)
             )
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

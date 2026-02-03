@@ -100,10 +100,13 @@ public class CliService {
 
     /**
      * Cursor CLI를 사용한 코드 변환 (외부망 전용)
-     * Cursor CLI 실제 API: agent -p "prompt" --workspace /path --output-format json --model gpt-5
+     * Cursor CLI 실제 API: agent -p "prompt" --workspace /path --output-format json --model gpt-4
      */
     public String convertWithCursorCli(String sourceFilePath, String instructions) throws IOException {
-        if (!cursorCliEnabled) {
+        Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+        boolean enabled = "true".equalsIgnoreCase(cliConfig.get("CURSOR_CLI_ENABLED"));
+        
+        if (!enabled) {
             log.info("Cursor CLI is disabled");
             return null;
         }
@@ -112,33 +115,103 @@ public class CliService {
         
         try {
             // Cursor CLI 환경변수 로드
-            Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
-            String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "gpt-5");
-            String apiKey = cliConfig.get("CURSOR_API_KEY");
+            String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "gpt-4");
+            String authToken = cliConfig.get("CURSOR_CLI_AUTH_TOKEN");
+            String workspacePath = cliConfig.get("WORKSPACE_PATH");
             
-            Path sourceFile = Path.of(sourceFilePath);
-            Path workspaceDir = sourceFile.getParent();
+            Path workspaceDir = workspacePath != null ? Path.of(workspacePath) : Path.of(sourceFilePath).getParent();
             
-            // agent -p "instructions" --workspace /path --output-format json --model gpt-5
-            CommandLine cmdLine = new CommandLine(cursorCliPath);
-            cmdLine.addArgument("-p"); // print mode (non-interactive)
+            // agent --print "instructions" --model gpt-4 [--api-key token]
+            CommandLine cmdLine = new CommandLine("/Users/dongsoo/.local/bin/agent");
+            cmdLine.addArgument("--print"); // print mode (non-interactive)
             cmdLine.addArgument(instructions, false); // quote=false to preserve special chars
-            cmdLine.addArgument("--workspace");
-            cmdLine.addArgument(workspaceDir.toString());
-            cmdLine.addArgument("--output-format");
-            cmdLine.addArgument("json");
             cmdLine.addArgument("--model");
             cmdLine.addArgument(model);
             
-            // API 키가 있으면 추가
-            if (apiKey != null && !apiKey.isEmpty()) {
+            // API 키가 있으면 추가 (선택사항 - Cursor IDE 실행 중이면 자동 인증)
+            if (authToken != null && !authToken.isEmpty()) {
                 cmdLine.addArgument("--api-key");
-                cmdLine.addArgument(apiKey);
+                cmdLine.addArgument(authToken);
             }
             
+            log.info("Executing Cursor Agent: model={}, workspace={}", model, workspaceDir);
             return executeCommand(cmdLine);
         } catch (IOException e) {
             log.warn("Cursor CLI execution failed, will fallback to direct LLM API", e);
+            return null;
+        }
+    }
+
+    /**
+     * Claude CLI를 사용한 코드 변환 (외부망 전용)
+     */
+    public String convertWithClaudeCli(String sourceFilePath, String instructions) throws IOException {
+        Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+        boolean enabled = "true".equalsIgnoreCase(cliConfig.get("CLAUDE_CLI_ENABLED"));
+        
+        if (!enabled) {
+            log.info("Claude CLI is disabled");
+            return null;
+        }
+
+        log.info("Converting file with Claude CLI (Anthropic API): {}", sourceFilePath);
+        
+        try {
+            String apiKey = cliConfig.get("ANTHROPIC_API_KEY");
+            String model = cliConfig.getOrDefault("CLAUDE_CLI_MODEL", "claude-3-5-sonnet-20240620");
+            
+            if (apiKey == null || apiKey.isEmpty()) {
+                log.warn("Anthropic API key not configured");
+                return null;
+            }
+            
+            // Claude API 직접 호출 (HTTP)
+            WebClient client = WebClient.builder()
+                    .baseUrl("https://api.anthropic.com/v1")
+                    .defaultHeader("x-api-key", apiKey)
+                    .defaultHeader("anthropic-version", "2023-06-01")
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .build();
+
+            // 소스 파일 읽기
+            String sourceCode = Files.readString(Path.of(sourceFilePath));
+            
+            String fullPrompt = String.format("""
+                    Convert the following C code to Java Spring Boot 3.2.5:
+                    
+                    ```c
+                    %s
+                    ```
+                    
+                    %s
+                    """, sourceCode, instructions);
+
+            Map<String, Object> request = Map.of(
+                    "model", model,
+                    "max_tokens", 8192,
+                    "messages", new Object[]{
+                            Map.of("role", "user", "content", fullPrompt)
+                    }
+            );
+
+            Map<String, Object> response = client.post()
+                    .uri("/messages")
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (response != null) {
+                java.util.List<Map<String, Object>> content = 
+                    (java.util.List<Map<String, Object>>) response.get("content");
+                if (content != null && !content.isEmpty()) {
+                    return (String) content.get(0).get("text");
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.error("Claude API call failed", e);
             return null;
         }
     }
@@ -227,6 +300,7 @@ public class CliService {
 
         return switch (activeTool.toLowerCase()) {
             case "cursor" -> convertWithCursorCli(sourceFilePath, instructions);
+            case "claude" -> convertWithClaudeCli(sourceFilePath, instructions);
             case "openai" -> convertWithOpenAi(sourceCode, conversionRules, instructions);
             case "aider" -> convertWithAider(sourceFilePath, null, instructions);
             case "fabric" -> analyzeWithFabric(sourceFilePath);

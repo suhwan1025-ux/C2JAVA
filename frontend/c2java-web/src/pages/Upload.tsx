@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
-import { Upload as UploadIcon, FileCode, X, Loader2, CheckCircle, Settings, BookOpen } from 'lucide-react';
+import { Upload as UploadIcon, FileCode, X, Loader2, CheckCircle, Settings, BookOpen, AlertCircle, XCircle } from 'lucide-react';
 import { api } from '../lib/api';
+
+// 서비스 상태 상세 표시 - v2.0
 
 interface AvailableLanguage {
   id: string;
@@ -12,6 +14,7 @@ interface AvailableLanguage {
 
 export default function Upload() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [files, setFiles] = useState<File[]>([]);
   const [jobName, setJobName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
@@ -24,6 +27,15 @@ export default function Upload() {
   });
   const [showJdbc, setShowJdbc] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  
+  // 모달 상태
+  const [showModal, setShowModal] = useState(false);
+  const [modalType, setModalType] = useState<'success' | 'error'>('success');
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalJobId, setModalJobId] = useState<string | null>(null);
+  
+  // 취소 작업 ID 추적
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
 
   // 사용 가능한 언어 목록 조회
   const { data: languages, isLoading: languagesLoading } = useQuery<AvailableLanguage[]>({
@@ -45,6 +57,171 @@ export default function Upload() {
 
   const hasOngoingJobs = ongoingJobs && ongoingJobs.length > 0;
 
+  // 환경 설정 조회 (폐쇄망 vs 외부망 판단)
+  const { data: cliEnv } = useQuery({
+    queryKey: ['cliEnv'],
+    queryFn: api.getCliEnvVariables,
+  });
+
+  const { data: workerEnv } = useQuery({
+    queryKey: ['workerEnv'],
+    queryFn: api.getWorkerServerEnvVariables,
+  });
+
+  // 환경 타입 판단
+  const getEnvironmentType = () => {
+    const workerServerUrl = workerEnv?.['WORKER_SERVER_URL'] || '';
+    const activeCliTool = cliEnv?.['ACTIVE_CLI_TOOL'] || '';
+    
+    if (workerServerUrl && 
+        !workerServerUrl.includes('localhost') && 
+        !workerServerUrl.startsWith('http://192.168.') &&
+        !workerServerUrl.startsWith('http://127.0.0.1')) {
+      return 'closed'; // 폐쇄망
+    }
+    
+    if (activeCliTool === 'cursor' || activeCliTool === 'claude' || activeCliTool === 'aider') {
+      return 'external'; // 외부망 (aider 포함)
+    }
+    
+    return 'unknown';
+  };
+
+  const environmentType = getEnvironmentType();
+
+  // 워커 서버 상태 확인 (폐쇄망)
+  const { data: workerServerStatus, isLoading: workerServerLoading } = useQuery({
+    queryKey: ['workerServerStatus'],
+    queryFn: api.getWorkerServerStatus,
+    enabled: environmentType === 'closed',
+    refetchInterval: environmentType === 'closed' ? 10000 : false,
+  });
+
+  // 로컬 서버 상태 확인 (외부망)
+  const { data: localServerStatus, isLoading: localServerLoading } = useQuery({
+    queryKey: ['localServerStatus'],
+    queryFn: api.getAllServicesStatus,
+    enabled: environmentType === 'external',
+    refetchInterval: environmentType === 'external' ? 10000 : false,
+  });
+
+  // 서비스 상태 체크
+  const checkServicesReady = () => {
+    if (environmentType === 'closed') {
+      // 폐쇄망: 워커 서버 CLI Service 확인
+      if (workerServerLoading) {
+        return { 
+          ready: false, 
+          message: '워커 서버 상태 확인 중...',
+          services: []
+        };
+      }
+      
+      const services = [
+        {
+          name: '워커 서버',
+          status: workerServerStatus?.enabled ? 'running' : 'stopped',
+          message: workerServerStatus?.enabled ? '설정됨' : '설정되지 않음'
+        },
+        {
+          name: '워커 서버 CLI Service',
+          status: workerServerStatus?.cliService?.running ? 'running' : 'stopped',
+          message: workerServerStatus?.cliService?.message || '실행되지 않음'
+        }
+      ];
+      
+      if (!workerServerStatus?.enabled) {
+        return { 
+          ready: false, 
+          message: '워커 서버가 설정되지 않았습니다.',
+          services
+        };
+      }
+      if (!workerServerStatus?.cliService?.running) {
+        return { 
+          ready: false, 
+          message: `워커 서버 CLI Service가 실행되지 않았습니다.\n${workerServerStatus?.cliService?.message || ''}`,
+          services
+        };
+      }
+      return { 
+        ready: true, 
+        message: '워커 서버 준비 완료',
+        services
+      };
+    } else if (environmentType === 'external') {
+      // 외부망: Airflow, CLI Service 확인
+      if (localServerLoading) {
+        return { 
+          ready: false, 
+          message: '로컬 서버 상태 확인 중...',
+          services: []
+        };
+      }
+      
+      const airflowRunning = localServerStatus?.airflow?.running;
+      const airflowWebserverRunning = localServerStatus?.airflow?.webserver?.running;
+      const airflowSchedulerRunning = localServerStatus?.airflow?.scheduler?.running;
+      const cliServiceRunning = localServerStatus?.['cli-service']?.running;
+      
+      const services = [
+        {
+          name: 'Airflow Webserver',
+          status: airflowWebserverRunning ? 'running' : 'stopped',
+          message: localServerStatus?.airflow?.webserver?.message || (airflowWebserverRunning ? '실행 중' : '중지됨')
+        },
+        {
+          name: 'Airflow Scheduler',
+          status: airflowSchedulerRunning ? 'running' : 'stopped',
+          message: localServerStatus?.airflow?.scheduler?.message || (airflowSchedulerRunning ? '실행 중' : '중지됨')
+        },
+        {
+          name: 'CLI Service',
+          status: cliServiceRunning ? 'running' : 'stopped',
+          message: localServerStatus?.['cli-service']?.message || (cliServiceRunning ? '실행 중' : '중지됨')
+        }
+      ];
+      
+      const failedServices = services.filter(s => s.status !== 'running').map(s => s.name);
+      
+      if (!airflowRunning && !cliServiceRunning) {
+        return { 
+          ready: false, 
+          message: 'Airflow와 CLI Service가 실행되지 않았습니다.\n관리자 페이지에서 서비스를 시작해주세요.',
+          services
+        };
+      }
+      if (!airflowRunning) {
+        return { 
+          ready: false, 
+          message: `Airflow가 실행되지 않았습니다 (${failedServices.filter(s => s.includes('Airflow')).join(', ')}).\n관리자 페이지에서 Airflow를 시작해주세요.`,
+          services
+        };
+      }
+      if (!cliServiceRunning) {
+        return { 
+          ready: false, 
+          message: 'CLI Service가 실행되지 않았습니다.\n관리자 페이지에서 CLI Service를 시작해주세요.',
+          services
+        };
+      }
+      return { 
+        ready: true, 
+        message: '모든 서비스가 정상 실행 중입니다',
+        services
+      };
+    }
+    
+    // 환경 타입을 알 수 없는 경우
+    return { 
+      ready: false, 
+      message: '환경 설정을 확인할 수 없습니다. 관리자 페이지에서 환경을 설정해주세요.',
+      services: []
+    };
+  };
+
+  const servicesStatus = checkServicesReady();
+
   // 첫 번째 언어를 기본값으로 설정
   useEffect(() => {
     if (languages && languages.length > 0 && !selectedLanguage) {
@@ -54,6 +231,11 @@ export default function Upload() {
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
+      // 서비스 상태 체크
+      if (!servicesStatus.ready) {
+        throw new Error(servicesStatus.message);
+      }
+
       // 진행 중인 작업 체크
       if (hasOngoingJobs) {
         throw new Error('이미 진행 중인 변환 작업이 있습니다. 작업이 완료될 때까지 기다려주세요.');
@@ -75,12 +257,49 @@ export default function Upload() {
     },
     onSuccess: (data) => {
       setUploadError(null);
-      navigate(`/jobs/${data.id}`);
+      // 성공 팝업 표시
+      setModalType('success');
+      setModalMessage(`${files.length}개의 파일이 성공적으로 업로드되었습니다.\n변환 작업이 시작되었습니다.`);
+      setModalJobId(data.id);
+      setShowModal(true);
+      // 진행 중인 작업 목록 갱신
+      queryClient.invalidateQueries({ queryKey: ['ongoingJobs'] });
     },
     onError: (error: any) => {
       console.error('Upload error:', error);
       const errorMessage = error.response?.data?.message || error.message || '파일 업로드 중 오류가 발생했습니다.';
+      // 에러 팝업 표시
+      setModalType('error');
+      setModalMessage(errorMessage);
+      setModalJobId(null);
+      setShowModal(true);
       setUploadError(errorMessage);
+    },
+  });
+
+  // 작업 취소 mutation
+  const cancelMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      setCancellingJobId(jobId);
+      return api.cancelJob(jobId);
+    },
+    onSuccess: () => {
+      // 진행 중인 작업 목록 갱신
+      queryClient.invalidateQueries({ queryKey: ['ongoingJobs'] });
+      setCancellingJobId(null);
+      // 성공 메시지
+      setModalType('success');
+      setModalMessage('작업이 취소되었습니다.');
+      setModalJobId(null);
+      setShowModal(true);
+    },
+    onError: (error: any) => {
+      setCancellingJobId(null);
+      const errorMessage = error.response?.data?.message || '작업 취소에 실패했습니다.';
+      setModalType('error');
+      setModalMessage(errorMessage);
+      setModalJobId(null);
+      setShowModal(true);
     },
   });
 
@@ -144,6 +363,77 @@ export default function Upload() {
           💡 Tip: 폴더 내 모든 파일을 선택(Ctrl+A/Cmd+A)하여 한번에 업로드할 수 있습니다
         </p>
         
+        {/* 서비스 상태 알림 */}
+        {!servicesStatus.ready && (
+          <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-800">
+                  서비스가 준비되지 않았습니다
+                </p>
+                <p className="text-xs text-red-700 mt-1 whitespace-pre-line">
+                  {servicesStatus.message}
+                </p>
+                
+                {/* 서비스 상태 체크리스트 */}
+                {servicesStatus.services && servicesStatus.services.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-medium text-red-800">서비스 상태:</p>
+                    {servicesStatus.services.map((service: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        {service.status === 'running' ? (
+                          <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                        )}
+                        <span className={service.status === 'running' ? 'text-green-700' : 'text-red-700'}>
+                          {service.name}
+                        </span>
+                        <span className="text-gray-500">-</span>
+                        <span className={service.status === 'running' ? 'text-green-600' : 'text-red-600'}>
+                          {service.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {environmentType === 'external' && (
+                  <button
+                    onClick={() => window.open('/admin', '_blank')}
+                    className="mt-3 text-xs text-red-700 underline hover:text-red-800 flex items-center gap-1"
+                  >
+                    관리자 페이지에서 서비스 시작하기 →
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* 서비스 정상 상태 알림 */}
+        {servicesStatus.ready && servicesStatus.services && servicesStatus.services.length > 0 && (
+          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800">
+                  {servicesStatus.message}
+                </p>
+                <div className="mt-2 space-y-1">
+                  {servicesStatus.services.map((service: any, idx: number) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs text-green-700">
+                      <CheckCircle className="h-3 w-3 flex-shrink-0" />
+                      <span>{service.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 진행 중인 작업 알림 */}
         {hasOngoingJobs && (
           <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -398,10 +688,12 @@ export default function Upload() {
           </button>
           <button
             type="submit"
-            disabled={files.length === 0 || uploadMutation.isPending || hasOngoingJobs || !selectedLanguage}
+            disabled={files.length === 0 || uploadMutation.isPending || hasOngoingJobs || !selectedLanguage || !servicesStatus.ready}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             title={
-              hasOngoingJobs 
+              !servicesStatus.ready
+                ? servicesStatus.message
+                : hasOngoingJobs 
                 ? '진행 중인 작업이 있습니다' 
                 : !selectedLanguage 
                 ? '변환 대상 언어를 선택해주세요'
@@ -429,6 +721,80 @@ export default function Upload() {
           </button>
         </div>
       </form>
+
+      {/* 결과 팝업 모달 */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fade-in">
+            <div className="flex items-start gap-4">
+              {/* 아이콘 */}
+              <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
+                modalType === 'success' ? 'bg-green-100' : 'bg-red-100'
+              }`}>
+                {modalType === 'success' ? (
+                  <CheckCircle className="h-6 w-6 text-green-600" />
+                ) : (
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                )}
+              </div>
+
+              {/* 메시지 */}
+              <div className="flex-1 pt-1">
+                <h3 className={`text-lg font-semibold mb-2 ${
+                  modalType === 'success' ? 'text-green-900' : 'text-red-900'
+                }`}>
+                  {modalType === 'success' ? '업로드 성공' : '업로드 실패'}
+                </h3>
+                <p className="text-sm text-gray-700 whitespace-pre-line">
+                  {modalMessage}
+                </p>
+                
+                {/* Job ID 표시 (성공 시) */}
+                {modalType === 'success' && modalJobId && (
+                  <div className="mt-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                    <span className="font-medium">작업 ID:</span> {modalJobId}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 버튼 */}
+            <div className="mt-6 flex justify-end gap-3">
+              {modalType === 'success' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setShowModal(false);
+                      navigate('/');
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    홈으로
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowModal(false);
+                      if (modalJobId) {
+                        navigate(`/jobs/${modalJobId}`);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    작업 확인하기
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  확인
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

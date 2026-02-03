@@ -9,6 +9,6 @@ import java.util.UUID;
 
 @Repository
 public interface ConversionReviewRepository extends JpaRepository<ConversionReview, UUID> {
-    List<ConversionReview> findByJobId(String jobId);
-    List<ConversionReview> findByJobIdAndReviewType(String jobId, String reviewType);
+    List<ConversionReview> findByJobId(UUID jobId);
+    List<ConversionReview> findByJobIdAndReviewType(UUID jobId, String reviewType);
 }
