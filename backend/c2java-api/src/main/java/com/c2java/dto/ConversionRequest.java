@@ -20,6 +20,11 @@ public class ConversionRequest {
     private String jobName;
     
     /**
+     * 변환 대상 언어 (예: "springboot-3.2.5")
+     */
+    private String targetLanguage;
+    
+    /**
      * LLM 제공자 (qwen3 | gpt_oss)
      */
     private String llmProvider;

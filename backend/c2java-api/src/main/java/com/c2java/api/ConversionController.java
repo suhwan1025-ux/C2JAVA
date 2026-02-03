@@ -34,38 +34,85 @@ public class ConversionController {
     private final ConversionPipelineService pipelineService;
 
     /**
-     * C 파일 업로드 및 변환 시작
+     * C 파일 업로드 및 변환 시작 (다중 파일 지원)
      */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "변환 작업 생성", description = "C 파일을 업로드하고 Java로 변환을 시작합니다.")
-    public ResponseEntity<ConversionResponse> createConversion(
-            @Parameter(description = "변환할 C 소스 파일")
-            @RequestPart("file") MultipartFile file,
+    public ResponseEntity<?> createConversion(
+            @Parameter(description = "변환할 C 소스 파일들")
+            @RequestPart(value = "files", required = false) List<MultipartFile> files,
+            @Parameter(description = "단일 파일 (하위 호환성)")
+            @RequestPart(value = "file", required = false) MultipartFile file,
             @Parameter(description = "작업 이름 (선택)")
             @RequestPart(value = "jobName", required = false) String jobName,
+            @Parameter(description = "대상 언어")
+            @RequestPart(value = "targetLanguage", required = false) String targetLanguage,
             @Parameter(description = "LLM 제공자 선택 (qwen3, gpt_oss)")
             @RequestPart(value = "llmProvider", required = false) String llmProvider,
-            @Parameter(description = "JDBC URL (선택)")
-            @RequestPart(value = "jdbcUrl", required = false) String jdbcUrl,
-            @Parameter(description = "JDBC 사용자 (선택)")
-            @RequestPart(value = "jdbcUser", required = false) String jdbcUser,
-            @Parameter(description = "JDBC 비밀번호 (선택)")
-            @RequestPart(value = "jdbcPassword", required = false) String jdbcPassword
-    ) throws IOException {
-        
-        log.info("Received conversion request for file: {}", file.getOriginalFilename());
-        
-        ConversionRequest request = ConversionRequest.builder()
-                .jobName(jobName)
-                .llmProvider(llmProvider)
-                .jdbcUrl(jdbcUrl)
-                .jdbcUser(jdbcUser)
-                .jdbcPassword(jdbcPassword)
-                .build();
-        
-        ConversionResponse response = conversionService.createConversionJob(file, request);
-        
-        return ResponseEntity.ok(response);
+            @Parameter(description = "JDBC 설정 (JSON)")
+            @RequestPart(value = "jdbcConfig", required = false) String jdbcConfig
+    ) {
+        try {
+            // 진행 중인 작업 확인
+            List<ConversionResponse> ongoingJobs = conversionService.getAllJobs().stream()
+                    .filter(job -> {
+                        String status = job.getStatus();
+                        return "PENDING".equals(status) || "ANALYZING".equals(status) || 
+                               "CONVERTING".equals(status) || "COMPILING".equals(status) || 
+                               "TESTING".equals(status);
+                    })
+                    .toList();
+            
+            if (!ongoingJobs.isEmpty()) {
+                log.warn("Cannot start new conversion: {} ongoing jobs", ongoingJobs.size());
+                return ResponseEntity.badRequest().body(Map.of(
+                    "error", "ONGOING_JOBS_EXIST",
+                    "message", "이미 진행 중인 변환 작업이 " + ongoingJobs.size() + "개 있습니다. 작업이 완료될 때까지 기다려주세요.",
+                    "ongoingJobCount", ongoingJobs.size()
+                ));
+            }
+            
+            // 파일 목록 통합 (다중 파일 우선, 없으면 단일 파일)
+            List<MultipartFile> uploadFiles = files != null && !files.isEmpty() ? files : 
+                                             (file != null ? List.of(file) : List.of());
+            
+            if (uploadFiles.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "error", "NO_FILES",
+                    "message", "업로드할 파일이 없습니다."
+                ));
+            }
+            
+            log.info("Received conversion request for {} files", uploadFiles.size());
+            uploadFiles.forEach(f -> log.debug("  - {}", f.getOriginalFilename()));
+            
+            // 대상 언어 확인
+            if (targetLanguage == null || targetLanguage.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "error", "NO_TARGET_LANGUAGE",
+                    "message", "변환 대상 언어를 선택해주세요."
+                ));
+            }
+            
+            ConversionRequest request = ConversionRequest.builder()
+                    .jobName(jobName != null ? jobName : uploadFiles.get(0).getOriginalFilename())
+                    .llmProvider(llmProvider)
+                    .targetLanguage(targetLanguage)
+                    .build();
+            
+            // 다중 파일 변환 작업 생성
+            ConversionResponse response = conversionService.createConversionJob(uploadFiles, request);
+            
+            log.info("Created conversion job: {} for {} files", response.getId(), uploadFiles.size());
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Failed to create conversion job", e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                "error", "INTERNAL_ERROR",
+                "message", "변환 작업 생성 중 오류가 발생했습니다: " + e.getMessage()
+            ));
+        }
     }
 
     /**

@@ -23,12 +23,27 @@ export default function Upload() {
     driver: 'oracle.jdbc.OracleDriver',
   });
   const [showJdbc, setShowJdbc] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // 사용 가능한 언어 목록 조회
   const { data: languages, isLoading: languagesLoading } = useQuery<AvailableLanguage[]>({
     queryKey: ['availableLanguages'],
     queryFn: api.listAvailableLanguages,
   });
+
+  // 진행 중인 작업 확인
+  const { data: ongoingJobs, isLoading: jobsLoading } = useQuery({
+    queryKey: ['ongoingJobs'],
+    queryFn: async () => {
+      const allJobs = await api.getAllJobs();
+      return allJobs.filter((job: any) => 
+        ['PENDING', 'ANALYZING', 'CONVERTING', 'COMPILING', 'TESTING'].includes(job.status)
+      );
+    },
+    refetchInterval: 5000, // 5초마다 갱신
+  });
+
+  const hasOngoingJobs = ongoingJobs && ongoingJobs.length > 0;
 
   // 첫 번째 언어를 기본값으로 설정
   useEffect(() => {
@@ -39,6 +54,11 @@ export default function Upload() {
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
+      // 진행 중인 작업 체크
+      if (hasOngoingJobs) {
+        throw new Error('이미 진행 중인 변환 작업이 있습니다. 작업이 완료될 때까지 기다려주세요.');
+      }
+
       const formData = new FormData();
       files.forEach((file) => {
         formData.append('files', file);
@@ -54,7 +74,13 @@ export default function Upload() {
       return api.uploadFiles(formData);
     },
     onSuccess: (data) => {
+      setUploadError(null);
       navigate(`/jobs/${data.id}`);
+    },
+    onError: (error: any) => {
+      console.error('Upload error:', error);
+      const errorMessage = error.response?.data?.message || error.message || '파일 업로드 중 오류가 발생했습니다.';
+      setUploadError(errorMessage);
     },
   });
 
@@ -117,6 +143,42 @@ export default function Upload() {
         <p className="text-xs text-blue-600 mt-1">
           💡 Tip: 폴더 내 모든 파일을 선택(Ctrl+A/Cmd+A)하여 한번에 업로드할 수 있습니다
         </p>
+        
+        {/* 진행 중인 작업 알림 */}
+        {hasOngoingJobs && (
+          <div className="mt-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 text-yellow-600 animate-spin" />
+              <div>
+                <p className="text-sm font-medium text-yellow-800">
+                  진행 중인 변환 작업이 {ongoingJobs.length}개 있습니다
+                </p>
+                <p className="text-xs text-yellow-700 mt-1">
+                  현재 작업이 완료될 때까지 새로운 변환을 시작할 수 없습니다.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* 에러 메시지 */}
+        {uploadError && (
+          <div className="mt-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <X className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-800">업로드 실패</p>
+                <p className="text-xs text-red-700 mt-1">{uploadError}</p>
+              </div>
+              <button
+                onClick={() => setUploadError(null)}
+                className="text-red-600 hover:text-red-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -336,13 +398,27 @@ export default function Upload() {
           </button>
           <button
             type="submit"
-            disabled={files.length === 0 || uploadMutation.isPending}
+            disabled={files.length === 0 || uploadMutation.isPending || hasOngoingJobs || !selectedLanguage}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            title={
+              hasOngoingJobs 
+                ? '진행 중인 작업이 있습니다' 
+                : !selectedLanguage 
+                ? '변환 대상 언어를 선택해주세요'
+                : files.length === 0
+                ? '파일을 선택해주세요'
+                : ''
+            }
           >
             {uploadMutation.isPending ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" />
                 업로드 중...
+              </>
+            ) : hasOngoingJobs ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                작업 진행 중
               </>
             ) : (
               <>

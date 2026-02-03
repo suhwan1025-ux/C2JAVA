@@ -33,33 +33,57 @@ public class ConversionService {
     private final RuntimeTestService runtimeTestService;
     private final ReviewService reviewService;
     private final FileStorageService fileStorageService;
+    private final ConversionPipelineService pipelineService;
 
     /**
-     * 새로운 변환 작업 생성
+     * 새로운 변환 작업 생성 (다중 파일)
      */
     @Transactional
-    public ConversionResponse createConversionJob(MultipartFile file, ConversionRequest request) throws IOException {
+    public ConversionResponse createConversionJob(List<MultipartFile> files, ConversionRequest request) throws IOException {
+        if (files == null || files.isEmpty()) {
+            throw new IllegalArgumentException("No files provided");
+        }
+        
         // 작업 ID 미리 생성
         String jobId = UUID.randomUUID().toString();
         
-        // 파일 저장 (로컬 또는 원격 파일 서버)
-        String savedFilePath = saveUploadedFile(file, jobId);
-        log.info("File saved for job {}: {}", jobId, savedFilePath);
+        log.info("Creating conversion job {} for {} files", jobId, files.size());
+        
+        // 첫 번째 파일을 대표 파일로 사용
+        String firstFileName = files.get(0).getOriginalFilename();
         
         // 작업 생성
         ConversionJob job = ConversionJob.builder()
-                .jobName(request.getJobName() != null ? request.getJobName() : file.getOriginalFilename())
-                .sourcePath(savedFilePath)
+                .jobId(jobId)
+                .jobName(request.getJobName() != null ? request.getJobName() : firstFileName)
+                .sourcePath("/tmp/c2java/" + jobId)  // 임시 경로
+                .targetLanguage(request.getTargetLanguage())
                 .llmProvider(request.getLlmProvider())
                 .status(JobStatus.PENDING)
                 .build();
         
         job = jobRepository.save(job);
         
-        // 비동기 변환 프로세스 시작
-        startConversionProcess(job.getId());
+        // 파일 저장 및 경로 목록 생성
+        java.util.List<java.nio.file.Path> savedPaths = new java.util.ArrayList<>();
+        for (MultipartFile file : files) {
+            String savedPath = saveUploadedFile(file, jobId);
+            savedPaths.add(java.nio.file.Paths.get(savedPath));
+            log.debug("Saved file: {}", savedPath);
+        }
+        
+        // Airflow 파이프라인 시작
+        pipelineService.startConversionWithAirflow(jobId, savedPaths);
         
         return ConversionResponse.fromEntity(job);
+    }
+    
+    /**
+     * 새로운 변환 작업 생성 (단일 파일 - 하위 호환성)
+     */
+    @Transactional
+    public ConversionResponse createConversionJob(MultipartFile file, ConversionRequest request) throws IOException {
+        return createConversionJob(List.of(file), request);
     }
 
     /**
