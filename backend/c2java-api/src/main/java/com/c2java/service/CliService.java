@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -100,9 +101,13 @@ public class CliService {
 
     /**
      * Cursor CLI를 사용한 코드 변환 (외부망 전용)
-     * Cursor CLI 실제 API: agent -p "prompt" --workspace /path --output-format json --model gpt-4
+     * stdin을 통해 Cursor agent를 실행합니다.
      */
-    public String convertWithCursorCli(String sourceFilePath, String instructions) throws IOException {
+    public String convertWithCursorCli(String sourceFilePath, String conversionRules, String instructions) throws IOException {
+        return convertWithCursorCli(sourceFilePath, conversionRules, instructions, null);
+    }
+    
+    public String convertWithCursorCli(String sourceFilePath, String conversionRules, String instructions, StringBuilder logBuilder) throws IOException {
         Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
         boolean enabled = "true".equalsIgnoreCase(cliConfig.get("CURSOR_CLI_ENABLED"));
         
@@ -114,30 +119,87 @@ public class CliService {
         log.info("Converting file with Cursor CLI: {}", sourceFilePath);
         
         try {
+            // 소스 파일 읽기
+            String sourceCode = Files.readString(Path.of(sourceFilePath));
+            
             // Cursor CLI 환경변수 로드
-            String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "gpt-4");
-            String authToken = cliConfig.get("CURSOR_CLI_AUTH_TOKEN");
-            String workspacePath = cliConfig.get("WORKSPACE_PATH");
+            String agentPath = cliConfig.getOrDefault("CURSOR_AGENT_PATH", "/Users/dongsoo/.local/bin/agent");
+            String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "opus-4.5-thinking");
             
-            Path workspaceDir = workspacePath != null ? Path.of(workspacePath) : Path.of(sourceFilePath).getParent();
+            // 프롬프트 생성 (변환 규칙 포함)
+            String fullPrompt = String.format("""
+                    Convert the following C code to Java Spring Boot 3.2.5 following these conversion rules:
+                    
+                    [CONVERSION RULES]
+                    %s
+                    
+                    [C CODE]
+                    ```c
+                    %s
+                    ```
+                    
+                    [REQUIREMENTS]
+                    %s
+                    """, conversionRules, sourceCode, instructions);
+
+            // 로그 기록
+            if (logBuilder != null) {
+                logBuilder.append("\n═══════════════════════════════════════\n");
+                logBuilder.append("🤖 Cursor CLI 질의 시작\n");
+                logBuilder.append("═══════════════════════════════════════\n");
+                logBuilder.append("모델: ").append(model).append("\n");
+                logBuilder.append("파일: ").append(sourceFilePath).append("\n");
+                logBuilder.append("\n[프롬프트 내용]\n");
+                logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                // 프롬프트가 너무 길면 요약
+                if (fullPrompt.length() > 1000) {
+                    logBuilder.append(fullPrompt.substring(0, 500)).append("\n...(중략)...\n").append(fullPrompt.substring(fullPrompt.length() - 500));
+                } else {
+                    logBuilder.append(fullPrompt);
+                }
+                logBuilder.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+            }
+
+            // Cursor agent 실행 (stdin으로 입력 전달, 모델 지정)
+            String[] command = {agentPath, "-p", "--model", model};
             
-            // agent --print "instructions" --model gpt-4 [--api-key token]
-            CommandLine cmdLine = new CommandLine("/Users/dongsoo/.local/bin/agent");
-            cmdLine.addArgument("--print"); // print mode (non-interactive)
-            cmdLine.addArgument(instructions, false); // quote=false to preserve special chars
-            cmdLine.addArgument("--model");
-            cmdLine.addArgument(model);
+            log.info("Executing Cursor agent with model: {} (stdin input)", model);
             
-            // API 키가 있으면 추가 (선택사항 - Cursor IDE 실행 중이면 자동 인증)
-            if (authToken != null && !authToken.isEmpty()) {
-                cmdLine.addArgument("--api-key");
-                cmdLine.addArgument(authToken);
+            String result = executeCommandWithStdin(command, fullPrompt);
+            
+            // 응답 로그 기록
+            if (logBuilder != null) {
+                logBuilder.append("\n[AI 응답]\n");
+                logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                if (result != null && !result.isEmpty()) {
+                    // 응답이 너무 길면 요약
+                    if (result.length() > 1000) {
+                        logBuilder.append(result.substring(0, 500)).append("\n...(중략)...\n").append(result.substring(result.length() - 500));
+                    } else {
+                        logBuilder.append(result);
+                    }
+                    logBuilder.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                    logBuilder.append("✅ Cursor CLI 응답 성공\n");
+                } else {
+                    logBuilder.append("⚠️ 응답 없음\n");
+                    logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                }
+                logBuilder.append("═══════════════════════════════════════\n\n");
             }
             
-            log.info("Executing Cursor Agent: model={}, workspace={}", model, workspaceDir);
-            return executeCommand(cmdLine);
-        } catch (IOException e) {
+            if (result != null && !result.isEmpty()) {
+                log.info("Cursor agent conversion successful");
+                return result;
+            } else {
+                log.warn("Cursor agent returned empty result");
+                return null;
+            }
+        } catch (Exception e) {
             log.warn("Cursor CLI execution failed, will fallback to direct LLM API", e);
+            if (logBuilder != null) {
+                logBuilder.append("\n❌ Cursor CLI 오류: ").append(e.getMessage()).append("\n");
+                logBuilder.append("═══════════════════════════════════════\n\n");
+            }
             return null;
         }
     }
@@ -145,7 +207,11 @@ public class CliService {
     /**
      * Claude CLI를 사용한 코드 변환 (외부망 전용)
      */
-    public String convertWithClaudeCli(String sourceFilePath, String instructions) throws IOException {
+    public String convertWithClaudeCli(String sourceFilePath, String conversionRules, String instructions) throws IOException {
+        return convertWithClaudeCli(sourceFilePath, conversionRules, instructions, null);
+    }
+    
+    public String convertWithClaudeCli(String sourceFilePath, String conversionRules, String instructions, StringBuilder logBuilder) throws IOException {
         Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
         boolean enabled = "true".equalsIgnoreCase(cliConfig.get("CLAUDE_CLI_ENABLED"));
         
@@ -158,7 +224,7 @@ public class CliService {
         
         try {
             String apiKey = cliConfig.get("ANTHROPIC_API_KEY");
-            String model = cliConfig.getOrDefault("CLAUDE_CLI_MODEL", "claude-3-5-sonnet-20240620");
+            String model = cliConfig.getOrDefault("CLAUDE_CLI_MODEL", "claude-opus-4-5-20251101");
             
             if (apiKey == null || apiKey.isEmpty()) {
                 log.warn("Anthropic API key not configured");
@@ -177,14 +243,36 @@ public class CliService {
             String sourceCode = Files.readString(Path.of(sourceFilePath));
             
             String fullPrompt = String.format("""
-                    Convert the following C code to Java Spring Boot 3.2.5:
+                    Convert the following C code to Java Spring Boot 3.2.5 following these conversion rules:
                     
+                    [CONVERSION RULES]
+                    %s
+                    
+                    [C CODE]
                     ```c
                     %s
                     ```
                     
+                    [REQUIREMENTS]
                     %s
-                    """, sourceCode, instructions);
+                    """, conversionRules, sourceCode, instructions);
+
+            // 로그 기록
+            if (logBuilder != null) {
+                logBuilder.append("\n═══════════════════════════════════════\n");
+                logBuilder.append("🤖 Claude API 질의 시작\n");
+                logBuilder.append("═══════════════════════════════════════\n");
+                logBuilder.append("모델: ").append(model).append("\n");
+                logBuilder.append("파일: ").append(sourceFilePath).append("\n");
+                logBuilder.append("\n[프롬프트 내용]\n");
+                logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                if (fullPrompt.length() > 1000) {
+                    logBuilder.append(fullPrompt.substring(0, 500)).append("\n...(중략)...\n").append(fullPrompt.substring(fullPrompt.length() - 500));
+                } else {
+                    logBuilder.append(fullPrompt);
+                }
+                logBuilder.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+            }
 
             Map<String, Object> request = Map.of(
                     "model", model,
@@ -201,17 +289,41 @@ public class CliService {
                     .bodyToMono(Map.class)
                     .block();
 
+            String result = null;
             if (response != null) {
                 java.util.List<Map<String, Object>> content = 
                     (java.util.List<Map<String, Object>>) response.get("content");
                 if (content != null && !content.isEmpty()) {
-                    return (String) content.get(0).get("text");
+                    result = (String) content.get(0).get("text");
                 }
             }
 
-            return null;
+            // 응답 로그 기록
+            if (logBuilder != null) {
+                logBuilder.append("\n[AI 응답]\n");
+                logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                if (result != null && !result.isEmpty()) {
+                    if (result.length() > 1000) {
+                        logBuilder.append(result.substring(0, 500)).append("\n...(중략)...\n").append(result.substring(result.length() - 500));
+                    } else {
+                        logBuilder.append(result);
+                    }
+                    logBuilder.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                    logBuilder.append("✅ Claude API 응답 성공\n");
+                } else {
+                    logBuilder.append("⚠️ 응답 없음\n");
+                    logBuilder.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                }
+                logBuilder.append("═══════════════════════════════════════\n\n");
+            }
+
+            return result;
         } catch (Exception e) {
             log.error("Claude API call failed", e);
+            if (logBuilder != null) {
+                logBuilder.append("\n❌ Claude API 오류: ").append(e.getMessage()).append("\n");
+                logBuilder.append("═══════════════════════════════════════\n\n");
+            }
             return null;
         }
     }
@@ -293,14 +405,23 @@ public class CliService {
      */
     public String convertWithActiveCli(String sourceFilePath, String sourceCode, 
                                       String conversionRules, String instructions) throws IOException {
+        return convertWithActiveCli(sourceFilePath, sourceCode, conversionRules, instructions, null);
+    }
+    
+    public String convertWithActiveCli(String sourceFilePath, String sourceCode, 
+                                      String conversionRules, String instructions, StringBuilder logBuilder) throws IOException {
         Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
         String activeTool = cliConfig.getOrDefault("ACTIVE_CLI_TOOL", "aider");
 
         log.info("Using active CLI tool: {}", activeTool);
+        
+        if (logBuilder != null) {
+            logBuilder.append("\n🔧 활성 CLI 도구: ").append(activeTool).append("\n");
+        }
 
         return switch (activeTool.toLowerCase()) {
-            case "cursor" -> convertWithCursorCli(sourceFilePath, instructions);
-            case "claude" -> convertWithClaudeCli(sourceFilePath, instructions);
+            case "cursor" -> convertWithCursorCli(sourceFilePath, conversionRules, instructions, logBuilder);
+            case "claude" -> convertWithClaudeCli(sourceFilePath, conversionRules, instructions, logBuilder);
             case "openai" -> convertWithOpenAi(sourceCode, conversionRules, instructions);
             case "aider" -> convertWithAider(sourceFilePath, null, instructions);
             case "fabric" -> analyzeWithFabric(sourceFilePath);
@@ -336,6 +457,182 @@ public class CliService {
             String error = errorStream.toString(StandardCharsets.UTF_8);
             log.error("Command execution failed: {}", error, e);
             throw e;
+        }
+    }
+    
+    /**
+     * CLI 연결 테스트 - 현재 시간 질의
+     * 외부망 환경설정에서 CLI 도구가 정상 작동하는지 테스트합니다.
+     */
+    public Map<String, Object> testCliConnection(String cliTool) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", false);
+        result.put("cliTool", cliTool);
+        result.put("timestamp", java.time.Instant.now().toString());
+        
+        try {
+            Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
+            String testPrompt = "What time is it now? Please respond with the current date and time in a friendly way.";
+            
+            long startTime = System.currentTimeMillis();
+            String response = null;
+            
+            switch (cliTool.toLowerCase()) {
+                case "cursor" -> {
+                    String agentPath = cliConfig.getOrDefault("CURSOR_AGENT_PATH", "/Users/dongsoo/.local/bin/agent");
+                    String model = cliConfig.getOrDefault("CURSOR_CLI_MODEL", "opus-4.5-thinking");
+                    String[] command = {agentPath, "-p", "--model", model};
+                    log.info("Testing Cursor CLI connection with agent: {} (model: {})", agentPath, model);
+                    response = executeCommandWithStdin(command, testPrompt);
+                }
+                case "claude" -> {
+                    String apiKey = cliConfig.get("ANTHROPIC_API_KEY");
+                    String model = cliConfig.getOrDefault("CLAUDE_CLI_MODEL", "claude-opus-4-5-20251101");
+                    
+                    if (apiKey == null || apiKey.isEmpty()) {
+                        throw new IllegalStateException("Anthropic API Key가 설정되지 않았습니다.");
+                    }
+                    
+                    log.info("Testing Claude API connection with model: {}", model);
+                    
+                    WebClient client = WebClient.builder()
+                            .baseUrl("https://api.anthropic.com/v1")
+                            .defaultHeader("x-api-key", apiKey)
+                            .defaultHeader("anthropic-version", "2023-06-01")
+                            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                            .build();
+                    
+                    Map<String, Object> request = Map.of(
+                            "model", model,
+                            "max_tokens", 1024,
+                            "messages", new Object[]{
+                                    Map.of("role", "user", "content", testPrompt)
+                            }
+                    );
+                    
+                    Map<String, Object> apiResponse = client.post()
+                            .uri("/messages")
+                            .bodyValue(request)
+                            .retrieve()
+                            .bodyToMono(Map.class)
+                            .block();
+                    
+                    if (apiResponse != null) {
+                        java.util.List<Map<String, Object>> content = 
+                            (java.util.List<Map<String, Object>>) apiResponse.get("content");
+                        if (content != null && !content.isEmpty()) {
+                            response = (String) content.get(0).get("text");
+                        }
+                    }
+                }
+                case "openai" -> {
+                    String apiKey = cliConfig.get("OPENAI_API_KEY");
+                    String model = cliConfig.getOrDefault("OPENAI_MODEL", "gpt-4");
+                    
+                    if (apiKey == null || apiKey.isEmpty()) {
+                        throw new IllegalStateException("OpenAI API Key가 설정되지 않았습니다.");
+                    }
+                    
+                    log.info("Testing OpenAI API connection with model: {}", model);
+                    
+                    WebClient client = WebClient.builder()
+                            .baseUrl("https://api.openai.com/v1")
+                            .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                            .build();
+                    
+                    Map<String, Object> request = Map.of(
+                            "model", model,
+                            "messages", new Object[]{
+                                    Map.of("role", "user", "content", testPrompt)
+                            },
+                            "max_tokens", 1024
+                    );
+                    
+                    Map<String, Object> apiResponse = client.post()
+                            .uri("/chat/completions")
+                            .bodyValue(request)
+                            .retrieve()
+                            .bodyToMono(Map.class)
+                            .block();
+                    
+                    if (apiResponse != null) {
+                        java.util.List<Map<String, Object>> choices = 
+                            (java.util.List<Map<String, Object>>) apiResponse.get("choices");
+                        if (choices != null && !choices.isEmpty()) {
+                            Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+                            response = (String) message.get("content");
+                        }
+                    }
+                }
+                default -> {
+                    throw new IllegalArgumentException("지원하지 않는 CLI 도구입니다: " + cliTool);
+                }
+            }
+            
+            long duration = System.currentTimeMillis() - startTime;
+            
+            if (response != null && !response.isEmpty()) {
+                result.put("success", true);
+                result.put("response", response);
+                result.put("duration", duration + "ms");
+                result.put("message", "연결 테스트 성공");
+                log.info("CLI connection test successful for {}: {} ms", cliTool, duration);
+            } else {
+                result.put("message", "응답이 비어있습니다.");
+                log.warn("CLI connection test returned empty response for {}", cliTool);
+            }
+            
+        } catch (Exception e) {
+            result.put("message", "연결 실패: " + e.getMessage());
+            result.put("error", e.getClass().getSimpleName());
+            log.error("CLI connection test failed for {}", cliTool, e);
+        }
+        
+        return result;
+    }
+
+    /**
+     * 명령어 실행 (stdin 입력 지원) - Cursor agent용
+     */
+    private String executeCommandWithStdin(String[] command, String input) throws IOException {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            
+            Process process = pb.start();
+            
+            // stdin으로 입력 전달
+            if (input != null && !input.isEmpty()) {
+                try (var writer = process.outputWriter()) {
+                    writer.write(input);
+                    writer.flush();
+                }
+            }
+            
+            // 출력 읽기
+            StringBuilder output = new StringBuilder();
+            try (var reader = process.inputReader()) {
+                reader.lines().forEach(line -> output.append(line).append("\n"));
+            }
+            
+            // 프로세스 종료 대기 (최대 30초 - 테스트용으로 단축)
+            boolean finished = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("Command timeout after 30 seconds");
+            }
+            
+            int exitCode = process.exitValue();
+            if (exitCode == 0) {
+                return output.toString().trim();
+            } else {
+                log.error("Command failed with exit code {}: {}", exitCode, output);
+                return null;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Command interrupted", e);
         }
     }
 }

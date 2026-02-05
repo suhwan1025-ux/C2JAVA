@@ -36,6 +36,13 @@ public class CodeConverterService {
      * C 파일을 Java로 변환
      */
     public Map<String, String> convertCFiles(ConversionJob job, List<Path> sourceFiles) throws IOException {
+        return convertCFiles(job, sourceFiles, null);
+    }
+    
+    /**
+     * C 파일을 Java로 변환 (로그 포함)
+     */
+    public Map<String, String> convertCFiles(ConversionJob job, List<Path> sourceFiles, StringBuilder conversionLog) throws IOException {
         log.info("Starting conversion for job: {}", job.getJobId());
         
         // 1. 규칙 파일 로드
@@ -72,7 +79,8 @@ public class CodeConverterService {
                     sourceFiles.stream()
                             .filter(p -> p.getFileName().toString().equals(structure.getFileName()))
                             .findFirst()
-                            .orElse(null)
+                            .orElse(null),
+                    conversionLog
             );
             
             generatedFiles.putAll(converted);
@@ -94,7 +102,8 @@ public class CodeConverterService {
      * 환경변수에 따라 CLI 또는 LLM 사용
      */
     private String convertWithActiveBackend(String sourceCode, String sourcePath, 
-                                            String conversionRules, String projectStructure, String prompt) {
+                                            String conversionRules, String projectStructure, String prompt, 
+                                            StringBuilder conversionLog) {
         try {
             Map<String, String> cliConfig = envSyncService.loadCliEnvVariables();
             String activeTool = cliConfig.getOrDefault("ACTIVE_CLI_TOOL", "aider");
@@ -104,7 +113,7 @@ public class CodeConverterService {
             // 외부망 CLI 도구 (cursor, claude)는 CLI Service 사용
             if ("cursor".equals(activeTool) || "claude".equals(activeTool)) {
                 log.info("Using CLI Service for conversion with {}", activeTool);
-                String result = cliService.convertWithActiveCli(sourcePath, sourceCode, conversionRules, prompt);
+                String result = cliService.convertWithActiveCli(sourcePath, sourceCode, conversionRules, prompt, conversionLog);
                 if (result != null && !result.isEmpty()) {
                     return result;
                 }
@@ -113,10 +122,16 @@ public class CodeConverterService {
             
             // 폐쇄망 (aider, fabric) 또는 fallback: 직접 LLM API 호출
             log.info("Using direct LLM API for conversion");
+            if (conversionLog != null) {
+                conversionLog.append("\n🔧 LLM API 사용 (fallback)\n");
+            }
             return llmService.convertCode(sourceCode, conversionRules, projectStructure, prompt);
             
         } catch (Exception e) {
             log.error("Conversion backend selection failed, using LLM API as fallback", e);
+            if (conversionLog != null) {
+                conversionLog.append("\n❌ 오류 발생, LLM API fallback\n");
+            }
             return llmService.convertCode(sourceCode, conversionRules, projectStructure, prompt);
         }
     }
@@ -127,14 +142,15 @@ public class CodeConverterService {
     private Map<String, String> convertByFileType(CFileStructure structure, 
                                                    String conversionRules,
                                                    String projectStructure,
-                                                   Path sourcePath) throws IOException {
+                                                   Path sourcePath,
+                                                   StringBuilder conversionLog) throws IOException {
         Map<String, String> generated = new LinkedHashMap<>();
         String sourceCode = sourcePath != null ? Files.readString(sourcePath) : "";
         
         switch (structure.getFileType()) {
-            case "pro_c" -> generated.putAll(convertProCFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
-            case "c_source" -> generated.putAll(convertCSourceFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
-            case "c_header" -> generated.putAll(convertCHeaderFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure));
+            case "pro_c" -> generated.putAll(convertProCFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure, conversionLog));
+            case "c_source" -> generated.putAll(convertCSourceFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure, conversionLog));
+            case "c_header" -> generated.putAll(convertCHeaderFile(structure, sourceCode, sourcePath != null ? sourcePath.toString() : "", conversionRules, projectStructure, conversionLog));
         }
         
         return generated;
@@ -144,7 +160,7 @@ public class CodeConverterService {
      * Pro*C 파일 변환 → Repository + Entity
      */
     private Map<String, String> convertProCFile(CFileStructure structure, String sourceCode, String sourcePath,
-                                                String conversionRules, String projectStructure) {
+                                                String conversionRules, String projectStructure, StringBuilder conversionLog) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".pc", "");
         
@@ -175,7 +191,7 @@ public class CodeConverterService {
                 structure.getStructs().size(),
                 baseName);
         
-        String repositoryCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, repositoryPrompt);
+        String repositoryCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, repositoryPrompt, conversionLog);
         generated.put(baseName + "Repository.java", repositoryCode);
         
         // Entity 생성 (구조체가 있는 경우)
@@ -194,7 +210,7 @@ public class CodeConverterService {
                             .reduce((a, b) -> a + ", " + b).orElse(""),
                     baseName);
             
-            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt);
+            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt, conversionLog);
             generated.put(baseName + ".java", entityCode);
         }
         
@@ -205,7 +221,7 @@ public class CodeConverterService {
      * C 소스 파일 변환 → Service + Controller
      */
     private Map<String, String> convertCSourceFile(CFileStructure structure, String sourceCode, String sourcePath,
-                                                   String conversionRules, String projectStructure) {
+                                                   String conversionRules, String projectStructure, StringBuilder conversionLog) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".c", "");
         
@@ -229,7 +245,7 @@ public class CodeConverterService {
                         .reduce((a, b) -> a + ", " + b).orElse(""),
                 baseName);
         
-        String serviceCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, servicePrompt);
+        String serviceCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, servicePrompt, conversionLog);
         generated.put(baseName + "Service.java", serviceCode);
         
         // ServiceImpl
@@ -248,7 +264,7 @@ public class CodeConverterService {
                 파일명: %sServiceImpl.java
                 """, baseName);
         
-        String implCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, implPrompt);
+        String implCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, implPrompt, conversionLog);
         generated.put(baseName + "ServiceImpl.java", implCode);
         
         return generated;
@@ -258,7 +274,7 @@ public class CodeConverterService {
      * C 헤더 파일 변환 → Entity + DTO + Enum
      */
     private Map<String, String> convertCHeaderFile(CFileStructure structure, String sourceCode, String sourcePath,
-                                                   String conversionRules, String projectStructure) {
+                                                   String conversionRules, String projectStructure, StringBuilder conversionLog) {
         Map<String, String> generated = new LinkedHashMap<>();
         String baseName = structure.getFileName().replace(".h", "");
         
@@ -277,7 +293,7 @@ public class CodeConverterService {
                     struct.getFields().size(),
                     struct.getName());
             
-            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt);
+            String entityCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, entityPrompt, conversionLog);
             generated.put(struct.getName() + ".java", entityCode);
         }
         
@@ -296,7 +312,7 @@ public class CodeConverterService {
                     enumInfo.getValues().size(),
                     enumInfo.getName());
             
-            String enumCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, enumPrompt);
+            String enumCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, enumPrompt, conversionLog);
             generated.put(enumInfo.getName() + ".java", enumCode);
         }
         
@@ -313,7 +329,7 @@ public class CodeConverterService {
                     structure.getDefines().size(),
                     baseName);
             
-            String constantsCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, constantsPrompt);
+            String constantsCode = convertWithActiveBackend(sourceCode, sourcePath, conversionRules, projectStructure, constantsPrompt, conversionLog);
             generated.put(baseName + "Constants.java", constantsCode);
         }
         
